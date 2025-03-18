@@ -8,6 +8,13 @@
         "description": "Azure location for all networking resources."
       }
     },
+    "networkIsolation": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Set true to deploy private DNS zones & links for private endpoints."
+      }
+    },
     "vnetName": {
       "type": "string",
       "defaultValue": "vnet-default",
@@ -144,6 +151,7 @@
         "description": "Name of the App Service Plan for delegation (optional)."
       }
     },
+
     "defaultSubnetName": {
       "type": "string",
       "defaultValue": "subnet-default",
@@ -175,9 +183,7 @@
     ]
   },
   "resources": [
-    // =========================
     // 1) NSGs
-    // =========================
     {
       "type": "Microsoft.Network/networkSecurityGroups",
       "apiVersion": "2020-11-01",
@@ -325,14 +331,10 @@
       "apiVersion": "2020-11-01",
       "name": "[parameters('defaultSubnetNsgName')]",
       "location": "[parameters('location')]",
-      "properties": {
-        "securityRules": []
-      }
+      "properties": { "securityRules": [] }
     },
 
-    // =========================
-    // 2) VNet + subnets
-    // =========================
+    // 2) VNet
     {
       "type": "Microsoft.Network/virtualNetworks",
       "apiVersion": "2020-11-01",
@@ -432,38 +434,39 @@
       }
     },
 
-    // =========================
-    // 3) Private DNS Zones
-    // =========================
+    // 3) Private DNS Zones - conditionally deployed if networkIsolation = true
     {
+      "condition": "[parameters('networkIsolation')]",
       "type": "Microsoft.Network/privateDnsZones",
       "apiVersion": "2020-06-01",
       "name": "privatelink.blob.core.windows.net",
       "location": "global"
     },
     {
+      "condition": "[parameters('networkIsolation')]",
       "type": "Microsoft.Network/privateDnsZones",
       "apiVersion": "2020-06-01",
       "name": "privatelink.documents.azure.com",
       "location": "global"
     },
     {
+      "condition": "[parameters('networkIsolation')]",
       "type": "Microsoft.Network/privateDnsZones",
       "apiVersion": "2020-06-01",
       "name": "privatelink.vaultcore.azure.net",
       "location": "global"
     },
     {
+      "condition": "[parameters('networkIsolation')]",
       "type": "Microsoft.Network/privateDnsZones",
       "apiVersion": "2020-06-01",
       "name": "privatelink.azurewebsites.net",
       "location": "global"
     },
 
-    // =========================
-    // 4) Private DNS Zones -> VNet Links
-    // =========================
+    // 4) Private DNS Zones -> Virtual Network Links - also condition on networkIsolation = true
     {
+      "condition": "[parameters('networkIsolation')]",
       "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
       "apiVersion": "2020-06-01",
       "name": "privatelink.blob.core.windows.net/vnetLink",
@@ -480,6 +483,7 @@
       }
     },
     {
+      "condition": "[parameters('networkIsolation')]",
       "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
       "apiVersion": "2020-06-01",
       "name": "privatelink.documents.azure.com/vnetLink",
@@ -496,6 +500,7 @@
       }
     },
     {
+      "condition": "[parameters('networkIsolation')]",
       "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
       "apiVersion": "2020-06-01",
       "name": "privatelink.vaultcore.azure.net/vnetLink",
@@ -512,6 +517,7 @@
       }
     },
     {
+      "condition": "[parameters('networkIsolation')]",
       "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
       "apiVersion": "2020-06-01",
       "name": "privatelink.azurewebsites.net/vnetLink",
