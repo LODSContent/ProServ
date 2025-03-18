@@ -48,7 +48,7 @@
       "type": "string",
       "defaultValue": "app-int-subnet",
       "metadata": {
-        "description": "Name of the App Integration subnet."
+        "description": "Name of the App Integration subnet (delegated to Microsoft.Web)."
       }
     },
     "appIntSubnetPrefix": {
@@ -172,6 +172,22 @@
       "metadata": {
         "description": "Name of the default subnet NSG."
       }
+    },
+
+    // NEW SUBNET for Private Endpoints (not delegated)
+    "privateEndpointsSubnetName": {
+      "type": "string",
+      "defaultValue": "private-endpoints-subnet",
+      "metadata": {
+        "description": "Name of the subnet for any private endpoints (no delegation)."
+      }
+    },
+    "privateEndpointsSubnetPrefix": {
+      "type": "string",
+      "defaultValue": "10.0.2.0/26",
+      "metadata": {
+        "description": "Address prefix for the Private Endpoints subnet."
+      }
     }
   },
   "variables": {
@@ -183,7 +199,7 @@
     ]
   },
   "resources": [
-    // 1) NSGs
+    // (1) Network Security Groups
     {
       "type": "Microsoft.Network/networkSecurityGroups",
       "apiVersion": "2020-11-01",
@@ -268,7 +284,10 @@
               "sourceAddressPrefix": "VirtualNetwork",
               "sourcePortRange": "*",
               "destinationAddressPrefix": "VirtualNetwork",
-              "destinationPortRanges": [ "8080", "5701" ]
+              "destinationPortRanges": [
+                "8080",
+                "5701"
+              ]
             }
           },
           {
@@ -307,7 +326,10 @@
               "sourceAddressPrefix": "VirtualNetwork",
               "sourcePortRange": "*",
               "destinationAddressPrefix": "VirtualNetwork",
-              "destinationPortRanges": [ "8080", "5701" ]
+              "destinationPortRanges": [
+                "8080",
+                "5701"
+              ]
             }
           },
           {
@@ -320,7 +342,10 @@
               "sourceAddressPrefix": "*",
               "sourcePortRange": "*",
               "destinationAddressPrefix": "Internet",
-              "destinationPortRanges": [ "80", "443" ]
+              "destinationPortRanges": [
+                "80",
+                "443"
+              ]
             }
           }
         ]
@@ -334,7 +359,16 @@
       "properties": { "securityRules": [] }
     },
 
-    // 2) VNet
+    // OPTIONAL: If you want NSG for private endpoints subnet:
+    {
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2020-11-01",
+      "name": "[concat(parameters('privateEndpointsSubnetName'), '-nsg')]",
+      "location": "[parameters('location')]",
+      "properties": { "securityRules": [] }
+    },
+
+    // (2) The Virtual Network
     {
       "type": "Microsoft.Network/virtualNetworks",
       "apiVersion": "2020-11-01",
@@ -346,7 +380,9 @@
         "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('appServicesNsgName'))]",
         "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('bastionNsgName'))]",
         "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('databaseNsgName'))]",
-        "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('defaultSubnetNsgName'))]"
+        "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('defaultSubnetNsgName'))]",
+        // If using a dedicated NSG for private-endpoints-subnet, add it here:
+        "[resourceId('Microsoft.Network/networkSecurityGroups', concat(parameters('privateEndpointsSubnetName'), '-nsg'))]"
       ],
       "properties": {
         "addressSpace": {
@@ -355,6 +391,7 @@
           ]
         },
         "subnets": [
+          // 2.1) AI Subnet
           {
             "name": "[parameters('aiSubnetName')]",
             "properties": {
@@ -366,6 +403,7 @@
               }
             }
           },
+          // 2.2) App Services Subnet
           {
             "name": "[parameters('appServicesSubnetName')]",
             "properties": {
@@ -377,6 +415,7 @@
               }
             }
           },
+          // 2.3) Database Subnet
           {
             "name": "[parameters('databaseSubnetName')]",
             "properties": {
@@ -388,6 +427,7 @@
               }
             }
           },
+          // 2.4) Bastion Subnet
           {
             "name": "[parameters('bastionSubnetName')]",
             "properties": {
@@ -399,6 +439,7 @@
               }
             }
           },
+          // 2.5) Subnet delegated to App Service
           {
             "name": "[parameters('appIntSubnetName')]",
             "properties": {
@@ -419,6 +460,7 @@
               }
             }
           },
+          // 2.6) Default Subnet
           {
             "name": "[parameters('defaultSubnetName')]",
             "properties": {
@@ -429,12 +471,26 @@
                 "id": "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('defaultSubnetNsgName'))]"
               }
             }
+          },
+          // 2.7) BRAND NEW SUBNET for Private Endpoints (NO DELEGATION)
+          {
+            "name": "[parameters('privateEndpointsSubnetName')]",
+            "properties": {
+              "addressPrefix": "[parameters('privateEndpointsSubnetPrefix')]",
+              // Typically we set "privateEndpointNetworkPolicies" to Disabled for better performance, 
+              // though it's optional:
+              "privateEndpointNetworkPolicies": "Disabled",
+              "privateLinkServiceNetworkPolicies": "Enabled",
+              "networkSecurityGroup": {
+                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', concat(parameters('privateEndpointsSubnetName'), '-nsg'))]"
+              }
+            }
           }
         ]
       }
     },
 
-    // 3) Private DNS Zones - conditionally deployed if networkIsolation = true
+    // (3) Private DNS Zones - conditionally if "networkIsolation = true"
     {
       "condition": "[parameters('networkIsolation')]",
       "type": "Microsoft.Network/privateDnsZones",
@@ -464,7 +520,7 @@
       "location": "global"
     },
 
-    // 4) Private DNS Zones -> Virtual Network Links - also condition on networkIsolation = true
+    // (4) Private DNS -> VNet Links
     {
       "condition": "[parameters('networkIsolation')]",
       "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
