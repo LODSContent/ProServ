@@ -39,7 +39,7 @@
       }
     },
 
-    // Additional parameters to handle private endpoints for OpenAI and Search
+    // Parameter to toggle private endpoints
     "networkIsolation": {
       "type": "bool",
       "defaultValue": false,
@@ -47,6 +47,7 @@
         "description": "If true, deploy private endpoints for OpenAI and Search."
       }
     },
+    // VNet/subnet used for private endpoints (only used if networkIsolation == true)
     "vnetName": {
       "type": "string",
       "defaultValue": "vnet-default",
@@ -77,11 +78,12 @@
     }
   },
   "variables": {
-    // We'll unify the plan to S1 (Standard)
+    // Current plan is set to Free; change to S1 if you prefer Standard tier, etc.
     "appServicePlanSku": {
       "name": "F1",
       "tier": "Free"
     },
+    // For Azure OpenAI and Search private endpoint group IDs:
     "cognitiveServicesGroupId": "Account",
     "searchGroupId": "searchService"
   },
@@ -106,12 +108,12 @@
       "apiVersion": "2021-02-01",
       "name": "[parameters('appServiceName')]",
       "location": "[parameters('location')]",
-      "properties": {
-        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', parameters('appServicePlanName'))]"
-      },
       "dependsOn": [
         "[resourceId('Microsoft.Web/serverfarms', parameters('appServicePlanName'))]"
-      ]
+      ],
+      "properties": {
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', parameters('appServicePlanName'))]"
+      }
     },
     // 3) Azure OpenAI
     {
@@ -149,18 +151,18 @@
       "properties": {}
     },
 
-    // ==========================
-    // 6) Private Endpoints for:
-    //    - Azure OpenAI
-    //    - Azure Search
-    //  Condition: "networkIsolation == true"
-    // ==========================
+    // 6) Private Endpoints (conditional on networkIsolation = true)
+
+    // Azure OpenAI private endpoint
     {
       "condition": "[parameters('networkIsolation')]",
       "type": "Microsoft.Network/privateEndpoints",
       "apiVersion": "2021-05-01",
       "name": "[parameters('azureOpenAiPe')]",
       "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.CognitiveServices/accounts', parameters('openAiName'))]"
+      ],
       "properties": {
         "subnet": {
           "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), parameters('privateEndpointSubnetName'))]"
@@ -169,24 +171,27 @@
           {
             "name": "openAi-pe-conn",
             "properties": {
+              // The resource ID of your OpenAI resource
               "privateLinkServiceId": "[resourceId('Microsoft.CognitiveServices/accounts', parameters('openAiName'))]",
+              // The group ID for Cognitive Services
               "groupIds": [
                 "[variables('cognitiveServicesGroupId')]"
               ]
             }
           }
         ]
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.CognitiveServices/accounts', parameters('openAiName'))]"
-      ]
+      }
     },
+    // Azure Search private endpoint
     {
       "condition": "[parameters('networkIsolation')]",
       "type": "Microsoft.Network/privateEndpoints",
       "apiVersion": "2021-05-01",
       "name": "[parameters('azureSearchPe')]",
       "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Search/searchServices', parameters('searchServiceName'))]"
+      ],
       "properties": {
         "subnet": {
           "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), parameters('privateEndpointSubnetName'))]"
@@ -195,17 +200,16 @@
           {
             "name": "search-pe-conn",
             "properties": {
+              // The resource ID of your Search service
               "privateLinkServiceId": "[resourceId('Microsoft.Search/searchServices', parameters('searchServiceName'))]",
+              // The group ID for Azure Search
               "groupIds": [
                 "[variables('searchGroupId')]"
               ]
             }
           }
         ]
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.Search/searchServices', parameters('searchServiceName'))]"
-      ]
+      }
     }
   ],
   "outputs": {
