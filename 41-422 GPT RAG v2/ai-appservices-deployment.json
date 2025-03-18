@@ -38,7 +38,6 @@
         "description": "Name of the Azure Search service."
       }
     },
-
     // Parameter to toggle private endpoints
     "networkIsolation": {
       "type": "bool",
@@ -47,7 +46,7 @@
         "description": "If true, deploy private endpoints for OpenAI and Search."
       }
     },
-    // VNet/subnet used for private endpoints
+    // VNet and subnet details for private endpoints
     "vnetName": {
       "type": "string",
       "defaultValue": "vnet-default",
