@@ -8,6 +8,7 @@
         "description": "Primary location for all resources."
       }
     },
+    // Existing params for these resources:
     "storageAccountName": {
       "type": "string",
       "metadata": {
@@ -20,16 +21,17 @@
         "description": "Name of the Key Vault."
       }
     },
-    "databaseName": {
-      "type": "string",
-      "metadata": {
-        "description": "Name of the SQL database."
-      }
-    },
     "sqlServerName": {
       "type": "string",
       "metadata": {
         "description": "Name of the SQL Server."
+      }
+    },
+    "databaseName": {
+      "type": "string",
+      "defaultValue": "db01",
+      "metadata": {
+        "description": "Name of the SQL database."
       }
     },
     "adminUsername": {
@@ -43,6 +45,50 @@
       "metadata": {
         "description": "Admin password for the SQL Server."
       }
+    },
+
+    // Additional for private endpoints:
+    "networkIsolation": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "If true, deploy private endpoints for Storage, Key Vault, and SQL."
+      }
+    },
+    "vnetName": {
+      "type": "string",
+      "defaultValue": "vnet-default",
+      "metadata": {
+        "description": "Virtual Network name if networkIsolation is true."
+      }
+    },
+    "privateEndpointSubnetName": {
+      "type": "string",
+      "defaultValue": "app-int-subnet",
+      "metadata": {
+        "description": "Name of the subnet to place private endpoints in, if networkIsolation is enabled."
+      }
+    },
+    "azureStorageAccountPe": {
+      "type": "string",
+      "defaultValue": "storage-pe",
+      "metadata": {
+        "description": "Name of the Storage Account Private Endpoint."
+      }
+    },
+    "azureKeyvaultPe": {
+      "type": "string",
+      "defaultValue": "kv-pe",
+      "metadata": {
+        "description": "Name of the Key Vault Private Endpoint."
+      }
+    },
+    "azureDbAccountPe": {
+      "type": "string",
+      "defaultValue": "sql-pe",
+      "metadata": {
+        "description": "Name of the SQL Server Private Endpoint."
+      }
     }
   },
   "variables": {
@@ -52,6 +98,7 @@
     "sqlDatabaseEdition": "Basic"
   },
   "resources": [
+    // 1) Storage Account
     {
       "type": "Microsoft.Storage/storageAccounts",
       "apiVersion": "2021-09-01",
@@ -63,6 +110,8 @@
       "kind": "StorageV2",
       "properties": {}
     },
+
+    // 2) Key Vault
     {
       "type": "Microsoft.KeyVault/vaults",
       "apiVersion": "2021-06-01-preview",
@@ -80,6 +129,8 @@
         "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
       ]
     },
+
+    // 3) SQL Server
     {
       "type": "Microsoft.Sql/servers",
       "apiVersion": "2021-02-01-preview",
@@ -94,6 +145,8 @@
         "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
       ]
     },
+
+    // 4) SQL Database
     {
       "type": "Microsoft.Sql/servers/databases",
       "apiVersion": "2021-02-01-preview",
@@ -102,6 +155,83 @@
       "properties": {
         "collation": "SQL_Latin1_General_CP1_CI_AS",
         "edition": "[variables('sqlDatabaseEdition')]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Sql/servers', parameters('sqlServerName'))]"
+      ]
+    },
+
+    // ======================
+    // 5) Private Endpoints
+    // ======================
+    // Deploy these if "networkIsolation" is true.
+    {
+      "condition": "[parameters('networkIsolation')]",
+      "type": "Microsoft.Network/privateEndpoints",
+      "apiVersion": "2021-05-01",
+      "name": "[parameters('azureStorageAccountPe')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "subnet": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), parameters('privateEndpointSubnetName'))]"
+        },
+        "privateLinkServiceConnections": [
+          {
+            "name": "storage-blob-conn",
+            "properties": {
+              "privateLinkServiceId": "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]",
+              "groupIds": [ "blob" ]
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
+      ]
+    },
+    {
+      "condition": "[parameters('networkIsolation')]",
+      "type": "Microsoft.Network/privateEndpoints",
+      "apiVersion": "2021-05-01",
+      "name": "[parameters('azureKeyvaultPe')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "subnet": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), parameters('privateEndpointSubnetName'))]"
+        },
+        "privateLinkServiceConnections": [
+          {
+            "name": "kv-conn",
+            "properties": {
+              "privateLinkServiceId": "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]",
+              "groupIds": [ "vault" ]
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
+      ]
+    },
+    {
+      "condition": "[parameters('networkIsolation')]",
+      "type": "Microsoft.Network/privateEndpoints",
+      "apiVersion": "2021-05-01",
+      "name": "[parameters('azureDbAccountPe')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "subnet": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), parameters('privateEndpointSubnetName'))]"
+        },
+        "privateLinkServiceConnections": [
+          {
+            "name": "sql-conn",
+            "properties": {
+              "privateLinkServiceId": "[resourceId('Microsoft.Sql/servers', parameters('sqlServerName'))]",
+              "groupIds": [ "sqlServer" ]
+            }
+          }
+        ]
       },
       "dependsOn": [
         "[resourceId('Microsoft.Sql/servers', parameters('sqlServerName'))]"
