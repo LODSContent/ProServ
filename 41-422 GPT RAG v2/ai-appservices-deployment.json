@@ -37,28 +37,70 @@
       "metadata": {
         "description": "Name of the Azure Search service."
       }
+    },
+
+    // Additional parameters to handle private endpoints for OpenAI and Search
+    "networkIsolation": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "If true, deploy private endpoints for OpenAI and Search."
+      }
+    },
+    "vnetName": {
+      "type": "string",
+      "defaultValue": "vnet-default",
+      "metadata": {
+        "description": "Name of the VNet if deploying private endpoints."
+      }
+    },
+    "privateEndpointSubnetName": {
+      "type": "string",
+      "defaultValue": "app-int-subnet",
+      "metadata": {
+        "description": "Subnet name for private endpoints, if networkIsolation is true."
+      }
+    },
+    "azureOpenAiPe": {
+      "type": "string",
+      "defaultValue": "openai-pe",
+      "metadata": {
+        "description": "Name of the Azure OpenAI private endpoint, if networkIsolation is enabled."
+      }
+    },
+    "azureSearchPe": {
+      "type": "string",
+      "defaultValue": "search-pe",
+      "metadata": {
+        "description": "Name of the Azure Search private endpoint, if networkIsolation is enabled."
+      }
     }
   },
   "variables": {
+    // We'll unify the plan to S1 (Standard)
     "appServicePlanSku": {
       "name": "S1",
       "tier": "Standard"
-    }
+    },
+    "cognitiveServicesGroupId": "Account",
+    "searchGroupId": "searchService"
   },
   "resources": [
+    // 1) App Service Plan
     {
       "type": "Microsoft.Web/serverfarms",
       "apiVersion": "2021-02-01",
       "name": "[parameters('appServicePlanName')]",
       "location": "[parameters('location')]",
       "sku": {
-        "name": "F1",
-        "tier": "Free"
+        "name": "[variables('appServicePlanSku').name]",
+        "tier": "[variables('appServicePlanSku').tier]"
       },
       "properties": {
         "reserved": false
       }
     },
+    // 2) App Service (Web App)
     {
       "type": "Microsoft.Web/sites",
       "apiVersion": "2021-02-01",
@@ -71,6 +113,7 @@
         "[resourceId('Microsoft.Web/serverfarms', parameters('appServicePlanName'))]"
       ]
     },
+    // 3) Azure OpenAI
     {
       "type": "Microsoft.CognitiveServices/accounts",
       "apiVersion": "2021-10-01",
@@ -84,6 +127,7 @@
         "apiProperties": {}
       }
     },
+    // 4) Application Insights
     {
       "type": "Microsoft.Insights/components",
       "apiVersion": "2020-02-02-preview",
@@ -93,6 +137,7 @@
         "Application_Type": "web"
       }
     },
+    // 5) Azure Search
     {
       "type": "Microsoft.Search/searchServices",
       "apiVersion": "2021-04-01-preview",
@@ -102,6 +147,65 @@
         "name": "standard"
       },
       "properties": {}
+    },
+
+    // ==========================
+    // 6) Private Endpoints for:
+    //    - Azure OpenAI
+    //    - Azure Search
+    //  Condition: "networkIsolation == true"
+    // ==========================
+    {
+      "condition": "[parameters('networkIsolation')]",
+      "type": "Microsoft.Network/privateEndpoints",
+      "apiVersion": "2021-05-01",
+      "name": "[parameters('azureOpenAiPe')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "subnet": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), parameters('privateEndpointSubnetName'))]"
+        },
+        "privateLinkServiceConnections": [
+          {
+            "name": "openAi-pe-conn",
+            "properties": {
+              "privateLinkServiceId": "[resourceId('Microsoft.CognitiveServices/accounts', parameters('openAiName'))]",
+              "groupIds": [
+                "[variables('cognitiveServicesGroupId')]"
+              ]
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.CognitiveServices/accounts', parameters('openAiName'))]"
+      ]
+    },
+    {
+      "condition": "[parameters('networkIsolation')]",
+      "type": "Microsoft.Network/privateEndpoints",
+      "apiVersion": "2021-05-01",
+      "name": "[parameters('azureSearchPe')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "subnet": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), parameters('privateEndpointSubnetName'))]"
+        },
+        "privateLinkServiceConnections": [
+          {
+            "name": "search-pe-conn",
+            "properties": {
+              "privateLinkServiceId": "[resourceId('Microsoft.Search/searchServices', parameters('searchServiceName'))]",
+              "groupIds": [
+                "[variables('searchGroupId')]"
+              ]
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Search/searchServices', parameters('searchServiceName'))]"
+      ]
     }
   ],
   "outputs": {
