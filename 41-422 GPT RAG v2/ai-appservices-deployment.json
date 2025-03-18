@@ -79,8 +79,8 @@
   "variables": {
     // We'll unify the plan to S1 (Standard)
     "appServicePlanSku": {
-      "name": "S1",
-      "tier": "Standard"
+      "name": "F1",
+      "tier": "Free"
     },
     "cognitiveServicesGroupId": "Account",
     "searchGroupId": "searchService"
