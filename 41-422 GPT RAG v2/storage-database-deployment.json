@@ -8,7 +8,6 @@
         "description": "Primary location for all resources."
       }
     },
-    // 1) Add the new parameter:
     "networkIsolation": {
       "type": "bool",
       "defaultValue": false,
@@ -16,7 +15,6 @@
         "description": "Set true to deploy private endpoints for storage, key vault, and SQL."
       }
     },
-
     "storageAccountName": {
       "type": "string",
       "metadata": {
@@ -53,39 +51,36 @@
         "description": "Admin password for the SQL Server."
       }
     },
-
-    // 2) Additional parameters for private endpoints if networkIsolation = true:
     "vnetName": {
       "type": "string",
-      "defaultValue": "",
       "metadata": {
         "description": "Name of the VNet for private endpoints (only used if networkIsolation = true)."
       }
     },
     "privateEndpointSubnetName": {
       "type": "string",
-      "defaultValue": "",
+      "defaultValue": "private-endpoints-subnet",
       "metadata": {
         "description": "Subnet to deploy private endpoints in (only used if networkIsolation = true)."
       }
     },
     "azureStorageAccountPe": {
       "type": "string",
-      "defaultValue": "",
+      "defaultValue": "storage-pe",
       "metadata": {
         "description": "Name of the storage account private endpoint (only if networkIsolation = true)."
       }
     },
     "azureKeyvaultPe": {
       "type": "string",
-      "defaultValue": "",
+      "defaultValue": "kv-pe",
       "metadata": {
         "description": "Name of the key vault private endpoint (only if networkIsolation = true)."
       }
     },
     "azureDbAccountPe": {
       "type": "string",
-      "defaultValue": "",
+      "defaultValue": "sql-pe",
       "metadata": {
         "description": "Name of the SQL private endpoint (only if networkIsolation = true)."
       }
@@ -98,9 +93,6 @@
     "sqlDatabaseEdition": "Basic"
   },
   "resources": [
-    // 3) The existing resources always deploy:
-
-    // Storage Account
     {
       "type": "Microsoft.Storage/storageAccounts",
       "apiVersion": "2021-09-01",
@@ -112,7 +104,6 @@
       "kind": "StorageV2",
       "properties": {}
     },
-    // Key Vault
     {
       "type": "Microsoft.KeyVault/vaults",
       "apiVersion": "2021-06-01-preview",
@@ -130,7 +121,6 @@
         "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
       ]
     },
-    // SQL Server
     {
       "type": "Microsoft.Sql/servers",
       "apiVersion": "2021-02-01-preview",
@@ -145,7 +135,6 @@
         "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
       ]
     },
-    // SQL Database
     {
       "type": "Microsoft.Sql/servers/databases",
       "apiVersion": "2021-02-01-preview",
@@ -160,10 +149,7 @@
       ]
     },
 
-    // 4) Private endpoints (conditional on networkIsolation = true)
-    //    Placeholder "groupIds", "privateLinkResourceId", etc. - fill in as appropriate.
-
-    // Storage Account private endpoint
+    // Private Endpoints (Only Deployed if Network Isolation is Enabled)
     {
       "condition": "[parameters('networkIsolation')]",
       "type": "Microsoft.Network/privateEndpoints",
@@ -181,16 +167,13 @@
           {
             "name": "storageConnection",
             "properties": {
-              "groupIds": [ "blob" ],
-              // use "blob","file","table" etc. depending on your scenario
+              "groupIds": ["blob"],
               "privateLinkServiceId": "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
             }
           }
         ]
       }
     },
-
-    // Key Vault private endpoint
     {
       "condition": "[parameters('networkIsolation')]",
       "type": "Microsoft.Network/privateEndpoints",
@@ -208,15 +191,13 @@
           {
             "name": "kvConnection",
             "properties": {
-              "groupIds": [ "vault" ],
+              "groupIds": ["vault"],
               "privateLinkServiceId": "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
             }
           }
         ]
       }
     },
-
-    // SQL Server private endpoint
     {
       "condition": "[parameters('networkIsolation')]",
       "type": "Microsoft.Network/privateEndpoints",
@@ -234,30 +215,12 @@
           {
             "name": "sqlConnection",
             "properties": {
-              "groupIds": [ "sqlServer" ],
+              "groupIds": ["sqlServer"],
               "privateLinkServiceId": "[resourceId('Microsoft.Sql/servers', parameters('sqlServerName'))]"
             }
           }
         ]
       }
     }
-  ],
-  "outputs": {
-    "storageAccountId": {
-      "type": "string",
-      "value": "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
-    },
-    "keyVaultId": {
-      "type": "string",
-      "value": "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
-    },
-    "sqlServerId": {
-      "type": "string",
-      "value": "[resourceId('Microsoft.Sql/servers', parameters('sqlServerName'))]"
-    },
-    "databaseId": {
-      "type": "string",
-      "value": "[resourceId('Microsoft.Sql/servers/databases', parameters('sqlServerName'), parameters('databaseName'))]"
-    }
-  }
+  ]
 }
