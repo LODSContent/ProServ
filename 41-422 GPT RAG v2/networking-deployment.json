@@ -22,6 +22,7 @@
         "description": "Address space for the Virtual Network."
       }
     },
+
     "aiSubnetName": {
       "type": "string",
       "defaultValue": "ai-subnet",
@@ -92,6 +93,7 @@
         "description": "Address prefix for the Bastion subnet."
       }
     },
+
     "aiNsgName": {
       "type": "string",
       "defaultValue": "ai-nsg",
@@ -127,6 +129,7 @@
         "description": "Name of the Bastion NSG."
       }
     },
+
     "appServicePlanId": {
       "type": "string",
       "defaultValue": "",
@@ -180,36 +183,28 @@
       "apiVersion": "2020-11-01",
       "name": "[parameters('aiNsgName')]",
       "location": "[parameters('location')]",
-      "properties": {
-        "securityRules": []
-      }
+      "properties": { "securityRules": [] }
     },
     {
       "type": "Microsoft.Network/networkSecurityGroups",
       "apiVersion": "2020-11-01",
       "name": "[parameters('appIntNsgName')]",
       "location": "[parameters('location')]",
-      "properties": {
-        "securityRules": []
-      }
+      "properties": { "securityRules": [] }
     },
     {
       "type": "Microsoft.Network/networkSecurityGroups",
       "apiVersion": "2020-11-01",
       "name": "[parameters('appServicesNsgName')]",
       "location": "[parameters('location')]",
-      "properties": {
-        "securityRules": []
-      }
+      "properties": { "securityRules": [] }
     },
     {
       "type": "Microsoft.Network/networkSecurityGroups",
       "apiVersion": "2020-11-01",
       "name": "[parameters('databaseNsgName')]",
       "location": "[parameters('location')]",
-      "properties": {
-        "securityRules": []
-      }
+      "properties": { "securityRules": [] }
     },
     {
       "type": "Microsoft.Network/networkSecurityGroups",
@@ -267,10 +262,7 @@
               "sourceAddressPrefix": "VirtualNetwork",
               "sourcePortRange": "*",
               "destinationAddressPrefix": "VirtualNetwork",
-              "destinationPortRanges": [
-                "8080",
-                "5701"
-              ]
+              "destinationPortRanges": [ "8080", "5701" ]
             }
           },
           {
@@ -283,10 +275,7 @@
               "sourceAddressPrefix": "*",
               "sourcePortRange": "*",
               "destinationAddressPrefix": "VirtualNetwork",
-              "destinationPortRanges": [
-                "22",
-                "3389"
-              ]
+              "destinationPortRanges": [ "22", "3389" ]
             }
           },
           {
@@ -312,10 +301,7 @@
               "sourceAddressPrefix": "VirtualNetwork",
               "sourcePortRange": "*",
               "destinationAddressPrefix": "VirtualNetwork",
-              "destinationPortRanges": [
-                "8080",
-                "5701"
-              ]
+              "destinationPortRanges": [ "8080", "5701" ]
             }
           },
           {
@@ -328,10 +314,7 @@
               "sourceAddressPrefix": "*",
               "sourcePortRange": "*",
               "destinationAddressPrefix": "Internet",
-              "destinationPortRanges": [
-                "80",
-                "443"
-              ]
+              "destinationPortRanges": [ "80", "443" ]
             }
           }
         ]
@@ -484,6 +467,7 @@
       "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
       "apiVersion": "2020-06-01",
       "name": "privatelink.blob.core.windows.net/vnetLink",
+      "location": "global",
       "dependsOn": [
         "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.blob.core.windows.net')]",
         "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
@@ -499,6 +483,7 @@
       "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
       "apiVersion": "2020-06-01",
       "name": "privatelink.documents.azure.com/vnetLink",
+      "location": "global",
       "dependsOn": [
         "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.documents.azure.com')]",
         "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
@@ -514,6 +499,7 @@
       "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
       "apiVersion": "2020-06-01",
       "name": "privatelink.vaultcore.azure.net/vnetLink",
+      "location": "global",
       "dependsOn": [
         "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.vaultcore.azure.net')]",
         "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
@@ -529,6 +515,7 @@
       "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
       "apiVersion": "2020-06-01",
       "name": "privatelink.azurewebsites.net/vnetLink",
+      "location": "global",
       "dependsOn": [
         "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.azurewebsites.net')]",
         "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
