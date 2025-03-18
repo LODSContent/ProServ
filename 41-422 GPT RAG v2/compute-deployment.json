@@ -16,8 +16,9 @@
     },
     "subnetName": {
       "type": "string",
+      "defaultValue": "subnet-default",
       "metadata": {
-        "description": "Name of the existing subnet for the VM."
+        "description": "Name of the existing subnet for the VM. For example, 'subnet-default', 'ai-subnet', 'app-int-subnet', 'database-subnet', etc."
       }
     },
     "vmSize": {
