@@ -1,0 +1,432 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": {
+      "type": "string",
+      "metadata": {
+        "description": "Azure location for all networking resources."
+      }
+    },
+    "vnetName": {
+      "type": "string",
+      "defaultValue": "vnet-default",
+      "metadata": {
+        "description": "Name of the Virtual Network."
+      }
+    },
+    "vnetAddress": {
+      "type": "string",
+      "defaultValue": "10.0.0.0/23",
+      "metadata": {
+        "description": "Address space for the Virtual Network."
+      }
+    },
+
+    "aiSubnetName": {
+      "type": "string",
+      "defaultValue": "ai-subnet",
+      "metadata": {
+        "description": "Name of the AI Services subnet."
+      }
+    },
+    "aiSubnetPrefix": {
+      "type": "string",
+      "defaultValue": "10.0.0.0/26",
+      "metadata": {
+        "description": "Address prefix for the AI Services subnet."
+      }
+    },
+    "appIntSubnetName": {
+      "type": "string",
+      "defaultValue": "app-int-subnet",
+      "metadata": {
+        "description": "Name of the App Integration subnet."
+      }
+    },
+    "appIntSubnetPrefix": {
+      "type": "string",
+      "defaultValue": "10.0.0.128/26",
+      "metadata": {
+        "description": "Address prefix for the App Integration subnet."
+      }
+    },
+    "appServicesSubnetName": {
+      "type": "string",
+      "defaultValue": "app-services-subnet",
+      "metadata": {
+        "description": "Name of the App Services subnet."
+      }
+    },
+    "appServicesSubnetPrefix": {
+      "type": "string",
+      "defaultValue": "10.0.0.192/26",
+      "metadata": {
+        "description": "Address prefix for the App Services subnet."
+      }
+    },
+    "databaseSubnetName": {
+      "type": "string",
+      "defaultValue": "database-subnet",
+      "metadata": {
+        "description": "Name of the Database subnet."
+      }
+    },
+    "databaseSubnetPrefix": {
+      "type": "string",
+      "defaultValue": "10.0.1.0/26",
+      "metadata": {
+        "description": "Address prefix for the Database subnet."
+      }
+    },
+    "bastionSubnetName": {
+      "type": "string",
+      "defaultValue": "AzureBastionSubnet",
+      "metadata": {
+        "description": "Name of the Bastion subnet."
+      }
+    },
+    "bastionSubnetPrefix": {
+      "type": "string",
+      "defaultValue": "10.0.0.64/26",
+      "metadata": {
+        "description": "Address prefix for the Bastion subnet."
+      }
+    },
+
+    "aiNsgName": {
+      "type": "string",
+      "defaultValue": "ai-nsg",
+      "metadata": {
+        "description": "Name of the AI NSG."
+      }
+    },
+    "appIntNsgName": {
+      "type": "string",
+      "defaultValue": "appInt-nsg",
+      "metadata": {
+        "description": "Name of the App Integration NSG."
+      }
+    },
+    "appServicesNsgName": {
+      "type": "string",
+      "defaultValue": "appServices-nsg",
+      "metadata": {
+        "description": "Name of the App Services NSG."
+      }
+    },
+    "databaseNsgName": {
+      "type": "string",
+      "defaultValue": "database-nsg",
+      "metadata": {
+        "description": "Name of the Database NSG."
+      }
+    },
+    "bastionNsgName": {
+      "type": "string",
+      "defaultValue": "bastion-nsg",
+      "metadata": {
+        "description": "Name of the Bastion NSG."
+      }
+    },
+
+    "appServicePlanId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Resource ID of the App Service Plan for delegation (optional)."
+      }
+    },
+    "appServicePlanName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Name of the App Service Plan for delegation (optional)."
+      }
+    }
+  },
+  "variables": {
+    "defaultSubnetName": "subnet-default",
+    "defaultSubnetPrefix": "10.0.1.64/26",
+    "defaultSubnetNsgName": "default-subnet-nsg"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2020-11-01",
+      "name": "[parameters('aiNsgName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "securityRules": []
+      }
+    },
+    {
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2020-11-01",
+      "name": "[parameters('appIntNsgName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "securityRules": []
+      }
+    },
+    {
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2020-11-01",
+      "name": "[parameters('appServicesNsgName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "securityRules": []
+      }
+    },
+    {
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2020-11-01",
+      "name": "[parameters('databaseNsgName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "securityRules": []
+      }
+    },
+    {
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2020-11-01",
+      "name": "[parameters('bastionNsgName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "securityRules": [
+          {
+            "name": "AllowHttpsInbound",
+            "properties": {
+              "priority": 100,
+              "protocol": "Tcp",
+              "access": "Allow",
+              "direction": "Inbound",
+              "sourceAddressPrefix": "Internet",
+              "sourcePortRange": "*",
+              "destinationAddressPrefix": "*",
+              "destinationPortRange": "443"
+            }
+          },
+          {
+            "name": "AllowGatewayManagerInbound",
+            "properties": {
+              "priority": 120,
+              "protocol": "Tcp",
+              "access": "Allow",
+              "direction": "Inbound",
+              "sourceAddressPrefix": "GatewayManager",
+              "sourcePortRange": "*",
+              "destinationAddressPrefix": "*",
+              "destinationPortRange": "443"
+            }
+          },
+          {
+            "name": "AllowLoadBalancerInbound",
+            "properties": {
+              "priority": 110,
+              "protocol": "Tcp",
+              "access": "Allow",
+              "direction": "Inbound",
+              "sourceAddressPrefix": "AzureLoadBalancer",
+              "sourcePortRange": "*",
+              "destinationAddressPrefix": "*",
+              "destinationPortRange": "443"
+            }
+          },
+          {
+            "name": "AllowBastionHostCommunicationInBound",
+            "properties": {
+              "priority": 130,
+              "protocol": "*",
+              "access": "Allow",
+              "direction": "Inbound",
+              "sourceAddressPrefix": "VirtualNetwork",
+              "sourcePortRange": "*",
+              "destinationAddressPrefix": "VirtualNetwork",
+              "destinationPortRanges": [
+                "8080",
+                "5701"
+              ]
+            }
+          },
+          {
+            "name": "AllowSshRdpOutBound",
+            "properties": {
+              "priority": 100,
+              "protocol": "Tcp",
+              "access": "Allow",
+              "direction": "Outbound",
+              "sourceAddressPrefix": "*",
+              "sourcePortRange": "*",
+              "destinationAddressPrefix": "VirtualNetwork",
+              "destinationPortRanges": [
+                "22",
+                "3389"
+              ]
+            }
+          },
+          {
+            "name": "AllowAzureCloudCommunicationOutBound",
+            "properties": {
+              "priority": 110,
+              "protocol": "Tcp",
+              "access": "Allow",
+              "direction": "Outbound",
+              "sourceAddressPrefix": "*",
+              "sourcePortRange": "*",
+              "destinationAddressPrefix": "AzureCloud",
+              "destinationPortRange": "443"
+            }
+          },
+          {
+            "name": "AllowBastionHostCommunicationOutBound",
+            "properties": {
+              "priority": 120,
+              "protocol": "*",
+              "access": "Allow",
+              "direction": "Outbound",
+              "sourceAddressPrefix": "VirtualNetwork",
+              "sourcePortRange": "*",
+              "destinationAddressPrefix": "VirtualNetwork",
+              "destinationPortRanges": [
+                "8080",
+                "5701"
+              ]
+            }
+          },
+          {
+            "name": "AllowGetSessionInformationOutBound",
+            "properties": {
+              "priority": 130,
+              "protocol": "*",
+              "access": "Allow",
+              "direction": "Outbound",
+              "sourceAddressPrefix": "*",
+              "sourcePortRange": "*",
+              "destinationAddressPrefix": "Internet",
+              "destinationPortRanges": [
+                "80",
+                "443"
+              ]
+            }
+          }
+        ]
+      }
+    },
+
+    {
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2020-11-01",
+      "name": "[variables('defaultSubnetNsgName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "securityRules": []
+      }
+    },
+
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2020-11-01",
+      "name": "[parameters('vnetName')]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('aiNsgName'))]",
+        "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('appIntNsgName'))]",
+        "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('appServicesNsgName'))]",
+        "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('bastionNsgName'))]",
+        "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('databaseNsgName'))]",
+        "[resourceId('Microsoft.Network/networkSecurityGroups', variables('defaultSubnetNsgName'))]"
+      ],
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[parameters('vnetAddress')]"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "[parameters('aiSubnetName')]",
+            "properties": {
+              "addressPrefix": "[parameters('aiSubnetPrefix')]",
+              "privateEndpointNetworkPolicies": "Enabled",
+              "privateLinkServiceNetworkPolicies": "Enabled",
+              "networkSecurityGroup": {
+                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('aiNsgName'))]"
+              }
+            }
+          },
+          {
+            "name": "[parameters('appServicesSubnetName')]",
+            "properties": {
+              "addressPrefix": "[parameters('appServicesSubnetPrefix')]",
+              "privateEndpointNetworkPolicies": "Enabled",
+              "privateLinkServiceNetworkPolicies": "Enabled",
+              "networkSecurityGroup": {
+                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('appServicesNsgName'))]"
+              }
+            }
+          },
+          {
+            "name": "[parameters('databaseSubnetName')]",
+            "properties": {
+              "addressPrefix": "[parameters('databaseSubnetPrefix')]",
+              "privateEndpointNetworkPolicies": "Enabled",
+              "privateLinkServiceNetworkPolicies": "Enabled",
+              "networkSecurityGroup": {
+                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('databaseNsgName'))]"
+              }
+            }
+          },
+          {
+            "name": "[parameters('bastionSubnetName')]",
+            "properties": {
+              "addressPrefix": "[parameters('bastionSubnetPrefix')]",
+              "privateEndpointNetworkPolicies": "Enabled",
+              "privateLinkServiceNetworkPolicies": "Enabled",
+              "networkSecurityGroup": {
+                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('bastionNsgName'))]"
+              }
+            }
+          },
+          {
+            "name": "[parameters('appIntSubnetName')]",
+            "properties": {
+              "addressPrefix": "[parameters('appIntSubnetPrefix')]",
+              "privateEndpointNetworkPolicies": "Enabled",
+              "privateLinkServiceNetworkPolicies": "Enabled",
+              "delegations": [
+                {
+                  "id": "[parameters('appServicePlanId')]",
+                  "name": "[parameters('appServicePlanName')]",
+                  "properties": {
+                    "serviceName": "Microsoft.Web/serverFarms"
+                  }
+                }
+              ],
+              "networkSecurityGroup": {
+                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('appIntNsgName'))]"
+              }
+            }
+          },
+          {
+            "name": "[variables('defaultSubnetName')]",
+            "properties": {
+              "addressPrefix": "[variables('defaultSubnetPrefix')]",
+              "privateEndpointNetworkPolicies": "Enabled",
+              "privateLinkServiceNetworkPolicies": "Enabled",
+              "networkSecurityGroup": {
+                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('defaultSubnetNsgName'))]"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "outputs": {
+    "vnetId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
+    }
+  }
+}
