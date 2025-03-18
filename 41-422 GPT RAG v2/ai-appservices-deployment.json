@@ -47,7 +47,7 @@
         "description": "If true, deploy private endpoints for OpenAI and Search."
       }
     },
-    // VNet/subnet used for private endpoints (only used if networkIsolation == true)
+    // VNet/subnet used for private endpoints
     "vnetName": {
       "type": "string",
       "defaultValue": "vnet-default",
@@ -57,7 +57,7 @@
     },
     "privateEndpointSubnetName": {
       "type": "string",
-      "defaultValue": "app-int-subnet",
+      "defaultValue": "private-endpoints-subnet",
       "metadata": {
         "description": "Subnet name for private endpoints, if networkIsolation is true."
       }
@@ -78,12 +78,10 @@
     }
   },
   "variables": {
-    // Current plan is set to Free; change to S1 if you prefer Standard tier, etc.
     "appServicePlanSku": {
-      "name": "F1",
-      "tier": "Free"
+      "name": "S1",
+      "tier": "Standard"
     },
-    // For Azure OpenAI and Search private endpoint group IDs:
     "cognitiveServicesGroupId": "Account",
     "searchGroupId": "searchService"
   },
@@ -171,9 +169,7 @@
           {
             "name": "openAi-pe-conn",
             "properties": {
-              // The resource ID of your OpenAI resource
               "privateLinkServiceId": "[resourceId('Microsoft.CognitiveServices/accounts', parameters('openAiName'))]",
-              // The group ID for Cognitive Services
               "groupIds": [
                 "[variables('cognitiveServicesGroupId')]"
               ]
@@ -200,9 +196,7 @@
           {
             "name": "search-pe-conn",
             "properties": {
-              // The resource ID of your Search service
               "privateLinkServiceId": "[resourceId('Microsoft.Search/searchServices', parameters('searchServiceName'))]",
-              // The group ID for Azure Search
               "groupIds": [
                 "[variables('searchGroupId')]"
               ]
