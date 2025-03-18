@@ -29,7 +29,6 @@
         "description": "Address space for the Virtual Network."
       }
     },
-
     "aiSubnetName": {
       "type": "string",
       "defaultValue": "ai-subnet",
@@ -100,7 +99,6 @@
         "description": "Address prefix for the Bastion subnet."
       }
     },
-
     "aiNsgName": {
       "type": "string",
       "defaultValue": "ai-nsg",
@@ -136,7 +134,6 @@
         "description": "Name of the Bastion NSG."
       }
     },
-
     "appServicePlanId": {
       "type": "string",
       "defaultValue": "",
@@ -151,7 +148,6 @@
         "description": "Name of the App Service Plan for delegation (optional)."
       }
     },
-
     "defaultSubnetName": {
       "type": "string",
       "defaultValue": "subnet-default",
@@ -173,8 +169,6 @@
         "description": "Name of the default subnet NSG."
       }
     },
-
-    // NEW SUBNET for Private Endpoints (not delegated)
     "privateEndpointsSubnetName": {
       "type": "string",
       "defaultValue": "private-endpoints-subnet",
@@ -184,7 +178,7 @@
     },
     "privateEndpointsSubnetPrefix": {
       "type": "string",
-      "defaultValue": "10.0.2.0/26",
+      "defaultValue": "10.0.1.192/26",
       "metadata": {
         "description": "Address prefix for the Private Endpoints subnet."
       }
@@ -300,7 +294,10 @@
               "sourceAddressPrefix": "*",
               "sourcePortRange": "*",
               "destinationAddressPrefix": "VirtualNetwork",
-              "destinationPortRanges": [ "22", "3389" ]
+              "destinationPortRanges": [
+                "22",
+                "3389"
+              ]
             }
           },
           {
@@ -358,8 +355,6 @@
       "location": "[parameters('location')]",
       "properties": { "securityRules": [] }
     },
-
-    // OPTIONAL: If you want NSG for private endpoints subnet:
     {
       "type": "Microsoft.Network/networkSecurityGroups",
       "apiVersion": "2020-11-01",
@@ -368,7 +363,7 @@
       "properties": { "securityRules": [] }
     },
 
-    // (2) The Virtual Network
+    // (2) Virtual Network with subnets
     {
       "type": "Microsoft.Network/virtualNetworks",
       "apiVersion": "2020-11-01",
@@ -381,7 +376,6 @@
         "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('bastionNsgName'))]",
         "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('databaseNsgName'))]",
         "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('defaultSubnetNsgName'))]",
-        // If using a dedicated NSG for private-endpoints-subnet, add it here:
         "[resourceId('Microsoft.Network/networkSecurityGroups', concat(parameters('privateEndpointsSubnetName'), '-nsg'))]"
       ],
       "properties": {
@@ -391,7 +385,6 @@
           ]
         },
         "subnets": [
-          // 2.1) AI Subnet
           {
             "name": "[parameters('aiSubnetName')]",
             "properties": {
@@ -403,7 +396,6 @@
               }
             }
           },
-          // 2.2) App Services Subnet
           {
             "name": "[parameters('appServicesSubnetName')]",
             "properties": {
@@ -415,7 +407,6 @@
               }
             }
           },
-          // 2.3) Database Subnet
           {
             "name": "[parameters('databaseSubnetName')]",
             "properties": {
@@ -427,7 +418,6 @@
               }
             }
           },
-          // 2.4) Bastion Subnet
           {
             "name": "[parameters('bastionSubnetName')]",
             "properties": {
@@ -439,7 +429,6 @@
               }
             }
           },
-          // 2.5) Subnet delegated to App Service
           {
             "name": "[parameters('appIntSubnetName')]",
             "properties": {
@@ -460,7 +449,6 @@
               }
             }
           },
-          // 2.6) Default Subnet
           {
             "name": "[parameters('defaultSubnetName')]",
             "properties": {
@@ -472,13 +460,10 @@
               }
             }
           },
-          // 2.7) BRAND NEW SUBNET for Private Endpoints (NO DELEGATION)
           {
             "name": "[parameters('privateEndpointsSubnetName')]",
             "properties": {
               "addressPrefix": "[parameters('privateEndpointsSubnetPrefix')]",
-              // Typically we set "privateEndpointNetworkPolicies" to Disabled for better performance, 
-              // though it's optional:
               "privateEndpointNetworkPolicies": "Disabled",
               "privateLinkServiceNetworkPolicies": "Enabled",
               "networkSecurityGroup": {
@@ -490,7 +475,7 @@
       }
     },
 
-    // (3) Private DNS Zones - conditionally if "networkIsolation = true"
+    // (3) Private DNS Zones (if networkIsolation is true)
     {
       "condition": "[parameters('networkIsolation')]",
       "type": "Microsoft.Network/privateDnsZones",
@@ -520,7 +505,7 @@
       "location": "global"
     },
 
-    // (4) Private DNS -> VNet Links
+    // (4) Private DNS Zone VNet Links (if networkIsolation is true)
     {
       "condition": "[parameters('networkIsolation')]",
       "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
