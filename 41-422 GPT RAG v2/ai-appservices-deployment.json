@@ -26,6 +26,12 @@
         "description": "Name of the Azure OpenAI service."
       }
     },
+    "openAiSubdomain": {
+      "type": "string",
+      "metadata": {
+        "description": "Custom subdomain name for the Azure OpenAI service."
+    }
+   },
     "appInsightsName": {
       "type": "string",
       "metadata": {
@@ -123,7 +129,8 @@
       },
       "kind": "OpenAI",
       "properties": {
-        "apiProperties": {}
+        "apiProperties": {},
+        "customSubDomainName": "[parameters('openAiSubdomain')]"
       }
     },
     // 4) Application Insights
