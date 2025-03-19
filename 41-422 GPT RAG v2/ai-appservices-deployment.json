@@ -87,7 +87,7 @@
       "name": "S1",
       "tier": "Standard"
     },
-    "cognitiveServicesGroupId": "openai",
+    "cognitiveServicesGroupId": "account",
     "searchGroupId": "searchService"
   },
   "resources": [
