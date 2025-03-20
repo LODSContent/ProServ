@@ -39,15 +39,35 @@
       "metadata": {
         "description": "Admin password for the VM."
       }
+    },
+    "loadTestingName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "If set, deploy Azure Load Testing with this name (for example 'myLoadTest'). Leave blank if not needed."
+      }
+    },
+    "testVmName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "If set, deploy a second VM with this name (for example 'testvm'). Leave blank if not needed."
+      }
     }
   },
   "variables": {
     "vmName": "vm-default",
     "nicName": "nic-default",
     "publicIpName": "pip-default",
-    "networkInterfaceId": "[resourceId('Microsoft.Network/networkInterfaces', variables('nicName'))]"
+    "networkInterfaceId": "[resourceId('Microsoft.Network/networkInterfaces', variables('nicName'))]",
+
+    // For test VM
+    "testVmNicName": "[concat(parameters('testVmName'), '-nic')]",
+    "testVmPipName": "[concat(parameters('testVmName'), '-pip')]",
+    "testVmNicId": "[resourceId('Microsoft.Network/networkInterfaces', variables('testVmNicName'))]"
   },
   "resources": [
+    // ---- 1) Main Public IP for primary VM ----
     {
       "type": "Microsoft.Network/publicIPAddresses",
       "apiVersion": "2020-11-01",
@@ -57,11 +77,16 @@
         "publicIPAllocationMethod": "Dynamic"
       }
     },
+
+    // ---- 2) Main Network Interface for primary VM ----
     {
       "type": "Microsoft.Network/networkInterfaces",
       "apiVersion": "2020-11-01",
       "name": "[variables('nicName')]",
       "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName'))]"
+      ],
       "properties": {
         "ipConfigurations": [
           {
@@ -76,16 +101,18 @@
             }
           }
         ]
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName'))]"
-      ]
+      }
     },
+
+    // ---- 3) Primary VM ----
     {
       "type": "Microsoft.Compute/virtualMachines",
       "apiVersion": "2021-07-01",
       "name": "[variables('vmName')]",
       "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkInterfaces', variables('nicName'))]"
+      ],
       "properties": {
         "hardwareProfile": {
           "vmSize": "[parameters('vmSize')]"
@@ -113,10 +140,98 @@
             }
           ]
         }
-      },
+      }
+    },
+
+    // ====== Additional VM (test VM) conditionally deployed ======
+
+    // (A) Test VM public IP
+    {
+      "condition": "[not(equals(parameters('testVmName'), ''))]",
+      "type": "Microsoft.Network/publicIPAddresses",
+      "apiVersion": "2020-11-01",
+      "name": "[variables('testVmPipName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "publicIPAllocationMethod": "Dynamic"
+      }
+    },
+    // (B) Test VM network interface
+    {
+      "condition": "[not(equals(parameters('testVmName'), ''))]",
+      "type": "Microsoft.Network/networkInterfaces",
+      "apiVersion": "2020-11-01",
+      "name": "[variables('testVmNicName')]",
+      "location": "[parameters('location')]",
       "dependsOn": [
-        "[resourceId('Microsoft.Network/networkInterfaces', variables('nicName'))]"
-      ]
+        "[resourceId('Microsoft.Network/publicIPAddresses', variables('testVmPipName'))]"
+      ],
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "subnet": {
+                "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), parameters('subnetName'))]"
+              },
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses', variables('testVmPipName'))]"
+              }
+            }
+          }
+        ]
+      }
+    },
+    // (C) Test VM
+    {
+      "condition": "[not(equals(parameters('testVmName'), ''))]",
+      "type": "Microsoft.Compute/virtualMachines",
+      "apiVersion": "2021-07-01",
+      "name": "[parameters('testVmName')]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkInterfaces', variables('testVmNicName'))]"
+      ],
+      "properties": {
+        "hardwareProfile": {
+          "vmSize": "[parameters('vmSize')]"
+        },
+        "osProfile": {
+          "computerName": "[parameters('testVmName')]",
+          "adminUsername": "[parameters('adminUsername')]",
+          "adminPassword": "[parameters('adminPassword')]"
+        },
+        "storageProfile": {
+          "imageReference": {
+            "publisher": "MicrosoftWindowsServer",
+            "offer": "WindowsServer",
+            "sku": "2019-Datacenter",
+            "version": "latest"
+          },
+          "osDisk": {
+            "createOption": "FromImage"
+          }
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[variables('testVmNicId')]"
+            }
+          ]
+        }
+      }
+    },
+
+    // ====== Azure Load Testing (conditionally deployed) ======
+    {
+      "condition": "[not(equals(parameters('loadTestingName'), ''))]",
+      "type": "Microsoft.LoadTestService/loadTests",
+      "apiVersion": "2022-06-01-preview",
+      "name": "[parameters('loadTestingName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "description": "Load testing service for performance evaluation"
+      }
     }
   ],
   "outputs": {
@@ -127,6 +242,25 @@
     "vmName": {
       "type": "string",
       "value": "[variables('vmName')]"
+    },
+
+    // Output references for optional test VM
+    "testVmId": {
+      "condition": "[not(equals(parameters('testVmName'), ''))]",
+      "type": "string",
+      "value": "[resourceId('Microsoft.Compute/virtualMachines', parameters('testVmName'))]"
+    },
+    "testVmName": {
+      "condition": "[not(equals(parameters('testVmName'), ''))]",
+      "type": "string",
+      "value": "[parameters('testVmName')]"
+    },
+
+    // Output reference for optional Load Testing
+    "loadTestingId": {
+      "condition": "[not(equals(parameters('loadTestingName'), ''))]",
+      "type": "string",
+      "value": "[resourceId('Microsoft.LoadTestService/loadTests', parameters('loadTestingName'))]"
     }
   }
 }
