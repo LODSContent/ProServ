@@ -89,7 +89,7 @@
       "type": "string",
       "defaultValue": "sql-pe",
       "metadata": {
-        "description": "Name of the SQL private endpoint (only if networkIsolation = true)."
+        "description": "Name of the SQL private endpoint (only if networkIsolation is enabled)."
       }
     },
     "azureCosmosDbPe": {
@@ -128,12 +128,16 @@
       "apiVersion": "2021-06-01-preview",
       "name": "[parameters('keyVaultName')]",
       "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
+      ],
       "properties": {
         "sku": {
           "family": "A",
           "name": "[variables('keyVaultSku')]"
         },
         "tenantId": "[subscription().tenantId]",
+        "accessPolicies": [],
         "networkAcls": {
           "defaultAction": "[if(parameters('networkIsolation'), 'Deny', 'Allow')]"
         }
@@ -144,6 +148,9 @@
       "apiVersion": "2021-02-01-preview",
       "name": "[parameters('sqlServerName')]",
       "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
+      ],
       "properties": {
         "administratorLogin": "[parameters('adminUsername')]",
         "administratorLoginPassword": "[parameters('adminPassword')]",
@@ -156,13 +163,15 @@
       "apiVersion": "2021-02-01-preview",
       "name": "[format('{0}/{1}', parameters('sqlServerName'), parameters('databaseName'))]",
       "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Sql/servers', parameters('sqlServerName'))]"
+      ],
       "properties": {
         "collation": "SQL_Latin1_General_CP1_CI_AS",
-        "edition": "[variables('sqlDatabaseEdition')]"
+        "edition": "[variables('sqlDatabaseEdition')]",
+        "requestedServiceObjectiveName": "Basic"
       }
     },
-
-    // Cosmos DB (conditionally deployed)
     {
       "condition": "[not(equals(parameters('cosmosDbName'), ''))]",
       "type": "Microsoft.DocumentDB/databaseAccounts",
@@ -173,32 +182,6 @@
         "databaseAccountOfferType": "Standard",
         "kind": "[variables('cosmosDbKind')]",
         "publicNetworkAccess": "[if(parameters('networkIsolation'), 'Disabled', 'Enabled')]"
-      }
-    },
-
-    // Private Endpoints (Only Deployed if Network Isolation is Enabled)
-    {
-      "condition": "[parameters('networkIsolation')]",
-      "type": "Microsoft.Network/privateEndpoints",
-      "apiVersion": "2021-05-01",
-      "name": "[parameters('azureCosmosDbPe')]",
-      "location": "[parameters('location')]",
-      "dependsOn": [
-        "[resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosDbName'))]"
-      ],
-      "properties": {
-        "subnet": {
-          "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), parameters('privateEndpointSubnetName'))]"
-        },
-        "privateLinkServiceConnections": [
-          {
-            "name": "cosmosConnection",
-            "properties": {
-              "groupIds": ["Sql"],
-              "privateLinkServiceId": "[resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosDbName'))]"
-            }
-          }
-        ]
       }
     }
   ],
