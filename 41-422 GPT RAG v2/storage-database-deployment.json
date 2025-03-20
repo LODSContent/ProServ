@@ -12,7 +12,7 @@
       "type": "bool",
       "defaultValue": false,
       "metadata": {
-        "description": "Set true to deploy private endpoints for storage, key vault, and SQL."
+        "description": "Set true to deploy private endpoints for storage, key vault, SQL, and Cosmos DB."
       }
     },
     "storageAccountName": {
@@ -37,6 +37,13 @@
       "type": "string",
       "metadata": {
         "description": "Name of the SQL database."
+      }
+    },
+    "cosmosDbName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Name of the Cosmos DB instance. Leave blank to skip deployment."
       }
     },
     "adminUsername": {
@@ -84,13 +91,21 @@
       "metadata": {
         "description": "Name of the SQL private endpoint (only if networkIsolation = true)."
       }
+    },
+    "azureCosmosDbPe": {
+      "type": "string",
+      "defaultValue": "cosmos-pe",
+      "metadata": {
+        "description": "Name of the Cosmos DB private endpoint (only if networkIsolation = true)."
+      }
     }
   },
   "variables": {
     "storageAccountSku": "Standard_LRS",
     "keyVaultSku": "standard",
     "sqlServerVersion": "12.0",
-    "sqlDatabaseEdition": "Basic"
+    "sqlDatabaseEdition": "Basic",
+    "cosmosDbKind": "GlobalDocumentDB"
   },
   "resources": [
     {
@@ -102,7 +117,11 @@
         "name": "[variables('storageAccountSku')]"
       },
       "kind": "StorageV2",
-      "properties": {}
+      "properties": {
+        "networkAcls": {
+          "defaultAction": "[if(parameters('networkIsolation'), 'Deny', 'Allow')]"
+        }
+      }
     },
     {
       "type": "Microsoft.KeyVault/vaults",
@@ -115,11 +134,10 @@
           "name": "[variables('keyVaultSku')]"
         },
         "tenantId": "[subscription().tenantId]",
-        "accessPolicies": []
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
-      ]
+        "networkAcls": {
+          "defaultAction": "[if(parameters('networkIsolation'), 'Deny', 'Allow')]"
+        }
+      }
     },
     {
       "type": "Microsoft.Sql/servers",
@@ -129,11 +147,9 @@
       "properties": {
         "administratorLogin": "[parameters('adminUsername')]",
         "administratorLoginPassword": "[parameters('adminPassword')]",
-        "version": "[variables('sqlServerVersion')]"
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
-      ]
+        "version": "[variables('sqlServerVersion')]",
+        "publicNetworkAccess": "[if(parameters('networkIsolation'), 'Disabled', 'Enabled')]"
+      }
     },
     {
       "type": "Microsoft.Sql/servers/databases",
@@ -143,10 +159,21 @@
       "properties": {
         "collation": "SQL_Latin1_General_CP1_CI_AS",
         "edition": "[variables('sqlDatabaseEdition')]"
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.Sql/servers', parameters('sqlServerName'))]"
-      ]
+      }
+    },
+
+    // Cosmos DB (conditionally deployed)
+    {
+      "condition": "[not(equals(parameters('cosmosDbName'), ''))]",
+      "type": "Microsoft.DocumentDB/databaseAccounts",
+      "apiVersion": "2021-07-01-preview",
+      "name": "[parameters('cosmosDbName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "databaseAccountOfferType": "Standard",
+        "kind": "[variables('cosmosDbKind')]",
+        "publicNetworkAccess": "[if(parameters('networkIsolation'), 'Disabled', 'Enabled')]"
+      }
     },
 
     // Private Endpoints (Only Deployed if Network Isolation is Enabled)
@@ -154,10 +181,10 @@
       "condition": "[parameters('networkIsolation')]",
       "type": "Microsoft.Network/privateEndpoints",
       "apiVersion": "2021-05-01",
-      "name": "[parameters('azureStorageAccountPe')]",
+      "name": "[parameters('azureCosmosDbPe')]",
       "location": "[parameters('location')]",
       "dependsOn": [
-        "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosDbName'))]"
       ],
       "properties": {
         "subnet": {
@@ -165,62 +192,33 @@
         },
         "privateLinkServiceConnections": [
           {
-            "name": "storageConnection",
+            "name": "cosmosConnection",
             "properties": {
-              "groupIds": ["blob"],
-              "privateLinkServiceId": "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
-            }
-          }
-        ]
-      }
-    },
-    {
-      "condition": "[parameters('networkIsolation')]",
-      "type": "Microsoft.Network/privateEndpoints",
-      "apiVersion": "2021-05-01",
-      "name": "[parameters('azureKeyvaultPe')]",
-      "location": "[parameters('location')]",
-      "dependsOn": [
-        "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
-      ],
-      "properties": {
-        "subnet": {
-          "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), parameters('privateEndpointSubnetName'))]"
-        },
-        "privateLinkServiceConnections": [
-          {
-            "name": "kvConnection",
-            "properties": {
-              "groupIds": ["vault"],
-              "privateLinkServiceId": "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
-            }
-          }
-        ]
-      }
-    },
-    {
-      "condition": "[parameters('networkIsolation')]",
-      "type": "Microsoft.Network/privateEndpoints",
-      "apiVersion": "2021-05-01",
-      "name": "[parameters('azureDbAccountPe')]",
-      "location": "[parameters('location')]",
-      "dependsOn": [
-        "[resourceId('Microsoft.Sql/servers', parameters('sqlServerName'))]"
-      ],
-      "properties": {
-        "subnet": {
-          "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), parameters('privateEndpointSubnetName'))]"
-        },
-        "privateLinkServiceConnections": [
-          {
-            "name": "sqlConnection",
-            "properties": {
-              "groupIds": ["sqlServer"],
-              "privateLinkServiceId": "[resourceId('Microsoft.Sql/servers', parameters('sqlServerName'))]"
+              "groupIds": ["Sql"],
+              "privateLinkServiceId": "[resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosDbName'))]"
             }
           }
         ]
       }
     }
-  ]
+  ],
+  "outputs": {
+    "storageAccountId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
+    },
+    "keyVaultId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
+    },
+    "sqlServerId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Sql/servers', parameters('sqlServerName'))]"
+    },
+    "cosmosDbId": {
+      "condition": "[not(equals(parameters('cosmosDbName'), ''))]",
+      "type": "string",
+      "value": "[resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosDbName'))]"
+    }
+  }
 }
