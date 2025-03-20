@@ -1,3 +1,5 @@
+// Below is the updated Networking ARM template with the addition of 'privatelink.aiservices.azure.com'.
+// All other subnets, NSGs, and private DNS configurations remain intact.
 {
   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
@@ -185,11 +187,13 @@
     }
   },
   "variables": {
+    // Added 'privatelink.aiservices.azure.com' for AI Services
     "dnsZones": [
       "privatelink.blob.core.windows.net",
       "privatelink.documents.azure.com",
       "privatelink.vaultcore.azure.net",
-      "privatelink.azurewebsites.net"
+      "privatelink.azurewebsites.net",
+      "privatelink.aiservices.azure.com"
     ]
   },
   "resources": [
@@ -504,6 +508,13 @@
       "name": "privatelink.azurewebsites.net",
       "location": "global"
     },
+    {
+      "condition": "[parameters('networkIsolation')]",
+      "type": "Microsoft.Network/privateDnsZones",
+      "apiVersion": "2020-06-01",
+      "name": "privatelink.aiservices.azure.com",
+      "location": "global"
+    },
 
     // (4) Private DNS Zone VNet Links (if networkIsolation is true)
     {
@@ -565,6 +576,23 @@
       "location": "global",
       "dependsOn": [
         "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.azurewebsites.net')]",
+        "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
+      ],
+      "properties": {
+        "virtualNetwork": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
+        },
+        "registrationEnabled": false
+      }
+    },
+    {
+      "condition": "[parameters('networkIsolation')]",
+      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+      "apiVersion": "2020-06-01",
+      "name": "privatelink.aiservices.azure.com/vnetLink",
+      "location": "global",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.aiservices.azure.com')]",
         "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
       ],
       "properties": {
