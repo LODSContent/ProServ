@@ -226,7 +226,7 @@
     {
       "condition": "[not(equals(parameters('loadTestingName'), ''))]",
       "type": "Microsoft.LoadTestService/loadTests",
-      "apiVersion": "2022-06-01-preview",
+      "apiVersion": "2023-12-01-preview",
       "name": "[parameters('loadTestingName')]",
       "location": "[parameters('location')]",
       "properties": {
