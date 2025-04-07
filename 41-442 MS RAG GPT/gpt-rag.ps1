@@ -95,44 +95,44 @@ Write-Log "Deploying environment..."
 azd deploy --environment dev-lab | Out-Null
 azd show-endpoints | Out-Null
 
-# 8) Post-Deployment Resource Discovery
-Write-Log "Discovering resource names..."
-$resourceGroup  = az resource list --resource-type "Microsoft.Storage/storageAccounts" --query "[0].resourceGroup" -o tsv
-$storageAccount = az resource list --resource-group $resourceGroup --resource-type "Microsoft.Storage/storageAccounts" --query "sort_by([?type=='Microsoft.Storage/storageAccounts'], &length(name))[0].name" -o tsv
-$ingestionFunc  = az resource list --resource-group $resourceGroup --resource-type "Microsoft.Web/sites" --query "[?contains(name, 'inges')].name" -o tsv
-$orchestratorFunc = az resource list --resource-group $resourceGroup --resource-type "Microsoft.Web/sites" --query \"[?contains(name, 'orch')].name\" -o tsv
-$searchService  = az resource list --resource-group $resourceGroup --resource-type "Microsoft.Search/searchServices" --query "[0].name" -o tsv
+# # 8) Post-Deployment Resource Discovery
+# Write-Log "Discovering resource names..."
+# $resourceGroup  = az resource list --resource-type "Microsoft.Storage/storageAccounts" --query "[0].resourceGroup" -o tsv
+# $storageAccount = az resource list --resource-group $resourceGroup --resource-type "Microsoft.Storage/storageAccounts" --query "sort_by([?type=='Microsoft.Storage/storageAccounts'], &length(name))[0].name" -o tsv
+# $ingestionFunc  = az resource list --resource-group $resourceGroup --resource-type "Microsoft.Web/sites" --query "[?contains(name, 'inges')].name" -o tsv
+# $orchestratorFunc = az resource list --resource-group $resourceGroup --resource-type "Microsoft.Web/sites" --query \"[?contains(name, 'orch')].name\" -o tsv
+# $searchService  = az resource list --resource-group $resourceGroup --resource-type "Microsoft.Search/searchServices" --query "[0].name" -o tsv
 
-Write-Host "Resource group: $resourceGroup"
-Write-Log "Resource group discovered: $resourceGroup"
+# Write-Host "Resource group: $resourceGroup"
+# Write-Log "Resource group discovered: $resourceGroup"
 
-# 9) Assign Storage Blob Data Contributor to SP
-Write-Log "Assigning Storage Blob Data Contributor role."
-$objectId = az ad sp show --id $clientId --query id -o tsv
-az role assignment create --assignee-object-id $objectId --assignee-principal-type ServicePrincipal --role "Storage Blob Data Contributor" --scope "/subscriptions/$subscriptionId/resourceGroups/$resourceGroup/providers/Microsoft.Storage/storageAccounts/$storageAccount" | Out-Null
+# # 9) Assign Storage Blob Data Contributor to SP
+# Write-Log "Assigning Storage Blob Data Contributor role."
+# $objectId = az ad sp show --id $clientId --query id -o tsv
+# az role assignment create --assignee-object-id $objectId --assignee-principal-type ServicePrincipal --role "Storage Blob Data Contributor" --scope "/subscriptions/$subscriptionId/resourceGroups/$resourceGroup/providers/Microsoft.Storage/storageAccounts/$storageAccount" | Out-Null
 
-# 10) Update function apps for multimodal
-Write-Log "Updating function apps for multimodal config."
-az functionapp config appsettings set --name $ingestionFunc   --resource-group $resourceGroup --settings MULTIMODAL=true | Out-Null
-az functionapp restart --name $ingestionFunc   --resource-group $resourceGroup | Out-Null
+# # 10) Update function apps for multimodal
+# Write-Log "Updating function apps for multimodal config."
+# az functionapp config appsettings set --name $ingestionFunc   --resource-group $resourceGroup --settings MULTIMODAL=true | Out-Null
+# az functionapp restart --name $ingestionFunc   --resource-group $resourceGroup | Out-Null
 
-az functionapp config appsettings set --name $orchestratorFunc --resource-group $resourceGroup --settings AUTOGEN_ORCHESTRATION_STRATEGY=multimodal_rag | Out-Null
-az functionapp restart --name $orchestratorFunc --resource-group $resourceGroup | Out-Null
+# az functionapp config appsettings set --name $orchestratorFunc --resource-group $resourceGroup --settings AUTOGEN_ORCHESTRATION_STRATEGY=multimodal_rag | Out-Null
+# az functionapp restart --name $orchestratorFunc --resource-group $resourceGroup | Out-Null
 
-# 11) Ingest a sample PDF (if the VM has outbound Internet)
-Write-Log "Downloading PDF from GitHub..."
-$pdfUrl  = "https://raw.githubusercontent.com/Azure/GPT-RAG/insiders/datasources/surface-pro-4-user-guide-EN.pdf"
-$pdfPath = "$env:TEMP\surface-pro-4-user-guide-EN.pdf"
+# # 11) Ingest a sample PDF (if the VM has outbound Internet)
+# Write-Log "Downloading PDF from GitHub..."
+# $pdfUrl  = "https://raw.githubusercontent.com/Azure/GPT-RAG/insiders/datasources/surface-pro-4-user-guide-EN.pdf"
+# $pdfPath = "$env:TEMP\surface-pro-4-user-guide-EN.pdf"
 
-try {
-    Invoke-WebRequest -Uri $pdfUrl -OutFile $pdfPath
-    az storage blob upload --account-name $storageAccount --container-name documents --name surface-pro-4-user-guide-EN.pdf --file $pdfPath --auth-mode login --overwrite | Out-Null
-    Write-Log "PDF uploaded to 'documents' container."
-}
-catch {
-    Write-Host "PDF ingestion error: $($_.Exception.Message)"
-    Write-Log "Failed to ingest PDF."
-}
+# try {
+#     Invoke-WebRequest -Uri $pdfUrl -OutFile $pdfPath
+#     az storage blob upload --account-name $storageAccount --container-name documents --name surface-pro-4-user-guide-EN.pdf --file $pdfPath --auth-mode login --overwrite | Out-Null
+#     Write-Log "PDF uploaded to 'documents' container."
+# }
+# catch {
+#     Write-Host "PDF ingestion error: $($_.Exception.Message)"
+#     Write-Log "Failed to ingest PDF."
+# }
 
 # 12) Output final web app URL
 Write-Log "Getting web app URL..."
