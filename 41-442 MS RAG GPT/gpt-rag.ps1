@@ -86,6 +86,7 @@ azd init -t azure/gpt-rag -b workshop -e dev-lab | Out-Null
 Write-Log "Setting subscription to $subscriptionId location eastus2."
 azd env set AZURE_SUBSCRIPTION_ID $subscriptionId | Out-Null
 azd env set AZURE_LOCATION eastus2 | Out-Null
+azd env set AZURE_NETWORK_ISOLATION true | Out-Null
 az account set --subscription $subscriptionId | Out-Null
 
 Write-Log "Provisioning environment..."
