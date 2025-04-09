@@ -99,12 +99,19 @@ az account set --subscription $subscriptionId | Out-Null
 
 Write-Log "Provisioning environment..."
 #azd provision --environment dev-lab | Out-Null
+#azd provision --environment dev-lab 2>&1 | Tee-Object -FilePath $logFile -Append
+
+Write-Host "Starting provisioning... this may take several minutes."
 azd provision --environment dev-lab 2>&1 | Tee-Object -FilePath $logFile -Append
+Write-Host "Provisioning complete."
+
+
 
 
 Write-Log "Deploying environment..."
 #azd deploy --environment dev-lab | Out-Null
 azd deploy --environment dev-lab 2>&1 | Tee-Object -FilePath $logFile -Append
+
 
 # # 8) Post-Deployment Resource Discovery
 # Write-Log "Discovering resource names..."
