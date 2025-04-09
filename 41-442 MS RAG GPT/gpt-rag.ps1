@@ -66,6 +66,8 @@ catch {
 $env:AZURE_CLIENT_ID     = $clientId
 $env:AZURE_CLIENT_SECRET = $clientSecret
 $env:AZURE_TENANT_ID     = $tenantId
+$env:AZD_NON_INTERACTIVE = "true"
+
 
 Write-Log "Logging in with service principal for azd + az."
 azd auth login --client-id $clientId --client-secret $clientSecret --tenant-id $tenantId
@@ -83,18 +85,26 @@ $env:AZD_SKIP_UPDATE_CHECK = "true"
 Write-Host "Initializing GPT-RAG template..."
 azd init -t azure/gpt-rag -b workshop -e dev-lab | Out-Null
 
+#verify that azd init worked
+Write-Log "Files after azd init:"
+Get-ChildItem | ForEach-Object { Write-Log $_.FullName }
+
+
 Write-Log "Setting subscription to $subscriptionId location eastus2."
 azd env set AZURE_SUBSCRIPTION_ID $subscriptionId | Out-Null
 azd env set AZURE_LOCATION eastus2 | Out-Null
 azd env set AZURE_NETWORK_ISOLATION true | Out-Null
 az account set --subscription $subscriptionId | Out-Null
 
+
 Write-Log "Provisioning environment..."
-azd provision --environment dev-lab | Out-Null
+#azd provision --environment dev-lab | Out-Null
+azd provision --environment dev-lab 2>&1 | Tee-Object -FilePath $logFile -Append
+
 
 Write-Log "Deploying environment..."
-azd deploy --environment dev-lab | Out-Null
-azd show-endpoints | Out-Null
+#azd deploy --environment dev-lab | Out-Null
+azd deploy --environment dev-lab 2>&1 | Tee-Object -FilePath $logFile -Append
 
 # # 8) Post-Deployment Resource Discovery
 # Write-Log "Discovering resource names..."
