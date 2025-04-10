@@ -119,7 +119,7 @@ if ($failures.Count -gt 0) {
 Write-Log "Configuring azd environment settings..."
 azd env set AZURE_SUBSCRIPTION_ID $subscriptionId | Out-Null
 azd env set AZURE_LOCATION eastus2 | Out-Null
-azd env set AZURE_NETWORK_ISOLATION true | Out-Null
+azd env set AZURE_NETWORK_ISOLATION false | Out-Null
 az account set --subscription $subscriptionId | Out-Null
 
 # === [10] Provision Infrastructure ===
