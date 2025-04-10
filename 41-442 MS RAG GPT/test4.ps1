@@ -1,14 +1,13 @@
-# === [1] Logging Setup ===
-$logDir     = "C:\labfiles"
-$progressLog = Join-Path $logDir "progress.log"
-$azdLog      = Join-Path $logDir "azd.log"
+# gpt-rag.ps1
 
+# === [1] Logging Setup ===
+$progressLog = "C:\labfiles\progress.log"
+$azdLog = "C:\labfiles\azd.log"
 function Write-Log($msg) {
     $stamp = (Get-Date).ToString("yyyy-MM-dd HHmmss")
     Add-Content $progressLog "[INFO] $stamp $msg"
 }
-
-Write-Log "Script started (GitHub version)"
+Write-Log "Script started in GitHub version."
 
 # === [2] Environment Variables ===
 $AdminUserName  = $env:LAB_ADMIN_USERNAME
@@ -43,23 +42,23 @@ $env:AZURE_CLIENT_SECRET = $clientSecret
 $env:AZURE_TENANT_ID     = $tenantId
 $env:AZD_NON_INTERACTIVE = "true"
 
-Write-Log "Authenticating with service principal for azd and az CLI..."
-azd auth login --client-id $clientId --client-secret $clientSecret --tenant-id $tenantId | Out-Null
+Write-Log "Logging in with service principal..."
+azd auth login --client-id $clientId --client-secret $clientSecret --tenant-id $tenantId 2>&1 | Tee-Object -FilePath $azdLog -Append
 az login --service-principal --username $clientId --password $clientSecret --tenant $tenantId | Out-Null
 
 # === [5] Prepare Deployment Folder ===
 $deployPath = "$HOME\gpt-rag-deploy"
-Write-Log "Setting up deployment folder at: $deployPath"
+Write-Log "Preparing deployment folder: $deployPath"
 Remove-Item -Recurse -Force $deployPath -ErrorAction SilentlyContinue | Out-Null
 New-Item -ItemType Directory -Path $deployPath -Force | Out-Null
 Set-Location $deployPath
 
 # === [6] azd Init ===
-Write-Log "Initializing Azure Developer CLI template..."
-azd init -t azure/gpt-rag -b workshop -e dev-lab | Tee-Object -FilePath $azdLog -Append
+Write-Log "Initializing GPT-RAG template..."
+azd init -t azure/gpt-rag -b workshop -e dev-lab 2>&1 | Tee-Object -FilePath $azdLog -Append
 
 # === [7] Validate SP Roles ===
-Write-Log "Validating service principal role assignments..."
+Write-Log "Checking service principal role assignments..."
 $requiredRoles = @("Contributor", "Network Contributor", "Private DNS Zone Contributor")
 $spObjectId = az ad sp show --id $clientId --query id -o tsv
 if (-not $spObjectId) { Write-Log "Could not resolve SP object ID."; return }
@@ -76,7 +75,7 @@ foreach ($role in $requiredRoles) {
         az role assignment create `
             --assignee-object-id $spObjectId `
             --role "$role" `
-            --scope "/subscriptions/$subscriptionId" | Tee-Object -FilePath $azdLog -Append
+            --scope "/subscriptions/$subscriptionId" 2>&1 | Tee-Object -FilePath $azdLog -Append
         Write-Log "Assigned role: $role"
     } else {
         Write-Log "SP already has role: $role"
@@ -84,7 +83,7 @@ foreach ($role in $requiredRoles) {
 }
 
 # === [8] Outbound Connectivity Check ===
-Write-Log "Testing outbound internet and DNS resolution..."
+Write-Log "Validating outbound access and DNS..."
 $testUrls = @(
     "https://management.azure.com",
     "https://www.azure.com",
@@ -111,28 +110,40 @@ try {
 }
 
 if ($failures.Count -gt 0) {
-    Write-Log "WARNING: Outbound connectivity failed for: $($failures -join ', ')"
-    Write-Host "`n[WARNING] Outbound connectivity failed for: $($failures -join ', ')"
-    Write-Host "Continuing — assuming VM is within a private network using Private Endpoints."
+    Write-Log "WARNING: Outbound connectivity to public endpoints failed: $($failures -join ', ')"
+    Write-Host "`n[WARNING] Outbound connectivity test failed for: $($failures -join ', ')"
+    Write-Host "Continuing anyway — assuming this VM is inside a private network with access via Private Endpoints."
 }
 
 # === [9] Configure azd Environment ===
-Write-Log "Setting azd environment variables..."
-azd env set AZURE_SUBSCRIPTION_ID $subscriptionId | Out-Null
-azd env set AZURE_LOCATION eastus2 | Out-Null
-azd env set AZURE_NETWORK_ISOLATION false | Out-Null
+Write-Log "Configuring azd environment settings..."
+$azdEnvSettings = @(
+    @{ Name = "AZURE_SUBSCRIPTION_ID"; Value = $subscriptionId },
+    @{ Name = "AZURE_LOCATION";        Value = "eastus2" },
+    @{ Name = "AZURE_NETWORK_ISOLATION"; Value = "true" }
+)
+
+foreach ($setting in $azdEnvSettings) {
+    try {
+        azd env set $setting.Name $setting.Value 2>&1 | Tee-Object -FilePath $azdLog -Append
+        Write-Log "Set environment variable: $($setting.Name)=$($setting.Value)"
+    } catch {
+        Write-Log "Failed to set environment variable $($setting.Name): $($_.Exception.Message)"
+    }
+}
+
 az account set --subscription $subscriptionId | Out-Null
 
 # === [10] Provision Infrastructure ===
-Write-Log "Provisioning infrastructure with azd..."
+Write-Log "Provisioning infrastructure..."
 azd provision --environment dev-lab 2>&1 | Tee-Object -FilePath $azdLog -Append
 
-## === [11] Deploy Application Code ===
-#Write-Log "Deploying GPT-RAG application with azd..."
-#azd deploy --environment dev-lab 2>&1 | Tee-Object -FilePath $azdLog -Append
+# === [11] Deploy Application Code ===
+Write-Log "Deploying GPT-RAG application..."
+azd deploy --environment dev-lab 2>&1 | Tee-Object -FilePath $azdLog -Append
 
 # === [12] Output Web App URL ===
-Write-Log "Retrieving Web App endpoint..."
+Write-Log "Retrieving Web App URL..."
 $resourceGroup  = az group list --query "[?contains(name, 'gpt')].name" -o tsv
 $webAppName     = az resource list --resource-group $resourceGroup --resource-type "Microsoft.Web/sites" --query "[?contains(name, 'webgpt')].name" -o tsv
 $webAppUrl      = az webapp show --name $webAppName --resource-group $resourceGroup --query "defaultHostName" -o tsv
@@ -141,7 +152,7 @@ if ($webAppUrl) {
     Write-Log "Deployment complete: https://$webAppUrl"
     Write-Host "`nYour GPT solution is live at: https://$webAppUrl"
 } else {
-    Write-Log "Deployment finished but could not resolve Web App URL."
+    Write-Log "Could not resolve web app URL."
     Write-Host "Deployment finished but Web App URL could not be resolved."
 }
 
