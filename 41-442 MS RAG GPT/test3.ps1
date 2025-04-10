@@ -133,11 +133,11 @@ azd provision --environment dev-lab 2>&1 |
     Tee-Object -FilePath $azdLogFile -Append |
     Tee-Object -FilePath $logFile -Append
 
-# === [11] Deploy Application Code ===
-Write-Log "Deploying GPT-RAG application..."
-azd deploy --environment dev-lab 2>&1 |
-    Tee-Object -FilePath $azdLogFile -Append |
-    Tee-Object -FilePath $logFile -Append
+# # === [11] Deploy Application Code ===
+# Write-Log "Deploying GPT-RAG application..."
+# azd deploy --environment dev-lab 2>&1 |
+#     Tee-Object -FilePath $azdLogFile -Append |
+#     Tee-Object -FilePath $logFile -Append
 
 # === [12] Output Web App URL ===
 Write-Log "Retrieving Web App URL..."
