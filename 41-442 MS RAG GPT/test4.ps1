@@ -1,12 +1,20 @@
 # gpt-rag.ps1
 
-# === [1] Logging Setup ===
-$progressLog = "C:\labfiles\progress.log"
-$azdLog = "C:\labfiles\azd.log"
+# === [1] Timestamped Logging Setup ===
+$timestamp = (Get-Date).ToString("yyyyMMdd-HHmmss")
+$logDir    = "C:\labfiles"
+$logFile   = Join-Path $logDir "progress-$timestamp.log"
+$azdLog    = Join-Path $logDir "azd-$timestamp.log"
+
+if (-not (Test-Path $logDir)) {
+    New-Item -ItemType Directory -Path $logDir | Out-Null
+}
+
 function Write-Log($msg) {
     $stamp = (Get-Date).ToString("yyyy-MM-dd HHmmss")
-    Add-Content $progressLog "[INFO] $stamp $msg"
+    Add-Content $logFile "[INFO] $stamp $msg"
 }
+
 Write-Log "Script started in GitHub version."
 
 # === [2] Environment Variables ===
@@ -43,7 +51,7 @@ $env:AZURE_TENANT_ID     = $tenantId
 $env:AZD_NON_INTERACTIVE = "true"
 
 Write-Log "Logging in with service principal..."
-azd auth login --client-id $clientId --client-secret $clientSecret --tenant-id $tenantId 2>&1 | Tee-Object -FilePath $azdLog -Append
+azd auth login --client-id $clientId --client-secret $clientSecret --tenant-id $tenantId
 az login --service-principal --username $clientId --password $clientSecret --tenant $tenantId | Out-Null
 
 # === [5] Prepare Deployment Folder ===
@@ -55,7 +63,7 @@ Set-Location $deployPath
 
 # === [6] azd Init ===
 Write-Log "Initializing GPT-RAG template..."
-azd init -t azure/gpt-rag -b workshop -e dev-lab 2>&1 | Tee-Object -FilePath $azdLog -Append
+azd init -t azure/gpt-rag -b workshop -e dev-lab | Out-Null
 
 # === [7] Validate SP Roles ===
 Write-Log "Checking service principal role assignments..."
@@ -75,7 +83,7 @@ foreach ($role in $requiredRoles) {
         az role assignment create `
             --assignee-object-id $spObjectId `
             --role "$role" `
-            --scope "/subscriptions/$subscriptionId" 2>&1 | Tee-Object -FilePath $azdLog -Append
+            --scope "/subscriptions/$subscriptionId" | Out-Null
         Write-Log "Assigned role: $role"
     } else {
         Write-Log "SP already has role: $role"
@@ -111,36 +119,31 @@ try {
 
 if ($failures.Count -gt 0) {
     Write-Log "WARNING: Outbound connectivity to public endpoints failed: $($failures -join ', ')"
+    Write-Log "Continuing deployment. This may be expected in a private network with Private Endpoints."
     Write-Host "`n[WARNING] Outbound connectivity test failed for: $($failures -join ', ')"
     Write-Host "Continuing anyway — assuming this VM is inside a private network with access via Private Endpoints."
 }
 
 # === [9] Configure azd Environment ===
 Write-Log "Configuring azd environment settings..."
-$azdEnvSettings = @(
-    @{ Name = "AZURE_SUBSCRIPTION_ID"; Value = $subscriptionId },
-    @{ Name = "AZURE_LOCATION";        Value = "eastus2" },
-    @{ Name = "AZURE_NETWORK_ISOLATION"; Value = "true" }
-)
-
-foreach ($setting in $azdEnvSettings) {
-    try {
-        azd env set $setting.Name $setting.Value 2>&1 | Tee-Object -FilePath $azdLog -Append
-        Write-Log "Set environment variable: $($setting.Name)=$($setting.Value)"
-    } catch {
-        Write-Log "Failed to set environment variable $($setting.Name): $($_.Exception.Message)"
-    }
-}
-
+azd env set AZURE_SUBSCRIPTION_ID $subscriptionId | Out-Null
+azd env set AZURE_LOCATION eastus2 | Out-Null
+azd env set AZURE_NETWORK_ISOLATION false | Out-Null
 az account set --subscription $subscriptionId | Out-Null
 
 # === [10] Provision Infrastructure ===
-Write-Log "Provisioning infrastructure..."
-azd provision --environment dev-lab 2>&1 | Tee-Object -FilePath $azdLog -Append
+Write-Log "Provisioning infrastructure (debug mode)..."
+Start-Job {
+    azd provision --environment dev-lab --debug *>&1 | Tee-Object -FilePath $using:azdLog -Append
+} | Wait-Job | Out-Null
+Write-Log "Provisioning complete. Logs written to: $azdLog"
 
-# === [11] Deploy Application Code ===
-Write-Log "Deploying GPT-RAG application..."
-azd deploy --environment dev-lab 2>&1 | Tee-Object -FilePath $azdLog -Append
+# # === [11] Deploy Application Code ===
+# Write-Log "Deploying GPT-RAG application (debug mode)..."
+# Start-Job {
+#     azd deploy --environment dev-lab --debug *>&1 | Tee-Object -FilePath $using:azdLog -Append
+# } | Wait-Job | Out-Null
+# Write-Log "Deployment complete."
 
 # === [12] Output Web App URL ===
 Write-Log "Retrieving Web App URL..."
