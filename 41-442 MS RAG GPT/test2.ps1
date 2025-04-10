@@ -109,10 +109,10 @@ try {
 }
 
 if ($failures.Count -gt 0) {
-    Write-Log "Outbound network validation failed: $($failures -join ', ')"
-    Write-Host "`nERROR: Outbound connectivity test failed for: $($failures -join ', ')"
-    Write-Host "Deployment aborted due to AZURE_NETWORK_ISOLATION=true"
-    return
+    Write-Log "WARNING: Outbound connectivity to public endpoints failed: $($failures -join ', ')"
+    Write-Log "Continuing deployment. This may be expected in a private network with Private Endpoints."
+    Write-Host "`n[WARNING] Outbound connectivity test failed for: $($failures -join ', ')"
+    Write-Host "Continuing anyway — assuming this VM is inside a private network with access via Private Endpoints."
 }
 
 # === [9] Configure azd Environment ===
