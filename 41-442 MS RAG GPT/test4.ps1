@@ -126,53 +126,35 @@ if ($failures.Count -gt 0) {
 
 # === [9] Configure azd Environment ===
 Write-Log "Configuring azd environment settings..."
-
 $subscriptionId = $env:LAB_SUBSCRIPTION_ID
-$tenantId       = $env:LAB_TENANT_ID
-$clientId       = $env:LAB_CLIENT_ID
-$clientSecret   = $env:LAB_CLIENT_SECRET
-
-# Set azd environment variables
-azd env set AZURE_SUBSCRIPTION_ID $subscriptionId | Out-Null
-azd env set AZURE_LOCATION eastus2 | Out-Null
-azd env set AZURE_NETWORK_ISOLATION false | Out-Null
-
-# Also ensure these are available to subprocesses
-$env:AZURE_SUBSCRIPTION_ID = $subscriptionId
-$env:AZURE_CLIENT_ID       = $clientId
-$env:AZURE_CLIENT_SECRET   = $clientSecret
-$env:AZURE_TENANT_ID       = $tenantId
-$env:AZD_NON_INTERACTIVE   = "true"
-az configure --defaults group="<your-resource-group>" location="eastus2" subscription="$subscriptionId"
-
+$azdLog = "C:\labfiles\azd.log"
 
 az account set --subscription $subscriptionId | Out-Null
-Write-Log "azd environment configured for subscription: $subscriptionId"
+azd env set AZURE_SUBSCRIPTION_ID $subscriptionId | Out-Null
+azd env set AZURE_LOCATION eastus2 | Out-Null
+azd env set AZURE_NETWORK_ISOLATION true | Out-Null
+$env:AZURE_SUBSCRIPTION_ID = $subscriptionId
+
+# Optional: suppress config reinitialization
+$configPath = "$env:USERPROFILE\.azd\config.json"
+if (-not (Test-Path $configPath)) {
+    Write-Output "{}" | Set-Content -Path $configPath -Encoding UTF8
+    Write-Log "Created empty config to suppress redundant azd config initialization."
+}
 
 # === [10] Provision Infrastructure ===
 Write-Log "Provisioning infrastructure (debug mode)..."
 
-Start-Job -ScriptBlock {
-    $env:AZURE_SUBSCRIPTION_ID = $using:subscriptionId
-    $env:AZURE_CLIENT_ID       = $using:clientId
-    $env:AZURE_CLIENT_SECRET   = $using:clientSecret
-    $env:AZURE_TENANT_ID       = $using:tenantId
-    $env:AZD_NON_INTERACTIVE   = "true"
+$startTime = Get-Date
+Write-Log "Provisioning started at $startTime"
 
-    az login --service-principal `
-        --username $env:AZURE_CLIENT_ID `
-        --password $env:AZURE_CLIENT_SECRET `
-        --tenant   $env:AZURE_TENANT_ID | Out-Null
+azd provision --environment dev-lab --debug *>&1 | Tee-Object -FilePath $azdLog -Append
 
-    az account set --subscription $env:AZURE_SUBSCRIPTION_ID | Out-Null
-    az configure --defaults group="<your-resource-group>" location="eastus2" subscription="$subscriptionId"
-
-
-    azd provision --environment dev-lab --debug *>&1 |
-        Tee-Object -FilePath $using:azdLog -Append
-} | Wait-Job | Out-Null
-
+$endTime = Get-Date
+Write-Log "Provisioning ended at $endTime"
+Write-Log "Provisioning duration: $([math]::Round(($endTime - $startTime).TotalMinutes,2)) minutes"
 Write-Log "Provisioning complete. Logs written to: $azdLog"
+
 
 
 # # === [11] Deploy Application Code ===
