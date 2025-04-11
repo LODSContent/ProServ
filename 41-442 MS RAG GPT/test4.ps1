@@ -126,17 +126,26 @@ if ($failures.Count -gt 0) {
 
 # === [9] Configure azd Environment ===
 Write-Log "Configuring azd environment settings..."
+
+$subscriptionId = $env:LAB_SUBSCRIPTION_ID
+# Set for current and background job
+$env:AZURE_SUBSCRIPTION_ID = $subscriptionId  
 azd env set AZURE_SUBSCRIPTION_ID $subscriptionId | Out-Null
 azd env set AZURE_LOCATION eastus2 | Out-Null
-azd env set AZURE_NETWORK_ISOLATION false | Out-Null
+azd env set AZURE_NETWORK_ISOLATION true | Out-Null
+
 az account set --subscription $subscriptionId | Out-Null
 
 # === [10] Provision Infrastructure ===
 Write-Log "Provisioning infrastructure (debug mode)..."
-Start-Job {
-    azd provision --environment dev-lab --debug *>&1 | Tee-Object -FilePath $using:azdLog -Append
+Start-Job -ScriptBlock {
+    $env:AZURE_SUBSCRIPTION_ID = $using:subscriptionId
+    azd provision --environment dev-lab --debug *>&1 |
+        Tee-Object -FilePath $using:azdLog -Append
 } | Wait-Job | Out-Null
+
 Write-Log "Provisioning complete. Logs written to: $azdLog"
+
 
 # # === [11] Deploy Application Code ===
 # Write-Log "Deploying GPT-RAG application (debug mode)..."
