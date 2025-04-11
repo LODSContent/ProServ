@@ -125,23 +125,49 @@ if ($failures.Count -gt 0) {
 }
 
 # === [9] Configure azd Environment ===
-# [9] Configure azd Environment
 Write-Log "Configuring azd environment settings..."
+
 $subscriptionId = $env:LAB_SUBSCRIPTION_ID
+$tenantId       = $env:LAB_TENANT_ID
+$clientId       = $env:LAB_CLIENT_ID
+$clientSecret   = $env:LAB_CLIENT_SECRET
+
+# Set azd environment variables
 azd env set AZURE_SUBSCRIPTION_ID $subscriptionId | Out-Null
 azd env set AZURE_LOCATION eastus2 | Out-Null
 azd env set AZURE_NETWORK_ISOLATION true | Out-Null
 
-# Set az CLI subscription context in this session
-az account set --subscription $subscriptionId | Out-Null
+# Also ensure these are available to subprocesses
+$env:AZURE_SUBSCRIPTION_ID = $subscriptionId
+$env:AZURE_CLIENT_ID       = $clientId
+$env:AZURE_CLIENT_SECRET   = $clientSecret
+$env:AZURE_TENANT_ID       = $tenantId
+$env:AZD_NON_INTERACTIVE   = "true"
 
-# [10] Provision Infrastructure in a background job
+az account set --subscription $subscriptionId | Out-Null
+Write-Log "azd environment configured for subscription: $subscriptionId"
+
+# === [10] Provision Infrastructure ===
 Write-Log "Provisioning infrastructure (debug mode)..."
+
 Start-Job -ScriptBlock {
     $env:AZURE_SUBSCRIPTION_ID = $using:subscriptionId
+    $env:AZURE_CLIENT_ID       = $using:clientId
+    $env:AZURE_CLIENT_SECRET   = $using:clientSecret
+    $env:AZURE_TENANT_ID       = $using:tenantId
+    $env:AZD_NON_INTERACTIVE   = "true"
+
+    az login --service-principal `
+        --username $env:AZURE_CLIENT_ID `
+        --password $env:AZURE_CLIENT_SECRET `
+        --tenant   $env:AZURE_TENANT_ID | Out-Null
+
+    az account set --subscription $env:AZURE_SUBSCRIPTION_ID | Out-Null
+
     azd provision --environment dev-lab --debug *>&1 |
         Tee-Object -FilePath $using:azdLog -Append
 } | Wait-Job | Out-Null
+
 Write-Log "Provisioning complete. Logs written to: $azdLog"
 
 
