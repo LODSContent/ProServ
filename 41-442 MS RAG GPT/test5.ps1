@@ -1,5 +1,5 @@
 #
-# gpt-rag.ps1 (Updated with Option 2: variable assignment + logging)
+# gpt-rag.ps1 (Updated with Option 2: variable assignment + logging + Key Vault fallback renaming)
 #
 
 $logFile = "C:\labfiles\progress.log"
@@ -18,7 +18,7 @@ $clientId      = $env:LAB_CLIENT_ID
 $clientSecret  = $env:LAB_CLIENT_SECRET
 
 if (-not $AdminUserName -or -not $AdminPassword) {
-    Write-Host "Lab user credentials not found. Exiting."
+    Write-Host "Lab user credentials not found in environment variables. Exiting."
     Write-Log "Missing LAB_ADMIN_USERNAME or LAB_ADMIN_PASSWORD."
     return
 }
@@ -28,7 +28,7 @@ if (-not $tenantId -or -not $subscriptionId) {
     return
 }
 if (-not $clientId -or -not $clientSecret) {
-    Write-Host "Service principal credentials missing. Exiting."
+    Write-Host "Service principal clientId/clientSecret missing. Exiting."
     Write-Log "Missing LAB_CLIENT_ID or LAB_CLIENT_SECRET."
     return
 }
@@ -65,8 +65,8 @@ Write-Log "az login result: $($azSpLoginResult | ConvertTo-Json -Depth 3)"
 
 $deployPath = "$HOME\gpt-rag-deploy"
 Write-Log "Cleaning deployment folder $deployPath"
-$rmResult = Remove-Item -Recurse -Force $deployPath -ErrorAction SilentlyContinue
-$mkdirResult = New-Item -ItemType Directory -Path $deployPath -Force
+Remove-Item -Recurse -Force $deployPath -ErrorAction SilentlyContinue | Out-String | Write-Log
+New-Item -ItemType Directory -Path $deployPath -Force | Out-String | Write-Log
 Set-Location $deployPath
 
 $env:AZD_SKIP_UPDATE_CHECK = "true"
@@ -78,22 +78,48 @@ Write-Log "Files after azd init:"
 Get-ChildItem | ForEach-Object { Write-Log $_.FullName }
 
 Write-Log "Setting subscription to $subscriptionId location eastus2."
-$subSet1 = azd env set AZURE_SUBSCRIPTION_ID $subscriptionId
-Write-Log "azd env set AZURE_SUBSCRIPTION_ID: $subSet1"
-$subSet2 = azd env set AZURE_LOCATION eastus2
-Write-Log "azd env set AZURE_LOCATION: $subSet2"
-$subSet3 = azd env set AZURE_NETWORK_ISOLATION false
-Write-Log "azd env set AZURE_NETWORK_ISOLATION: $subSet3"
-$azSubSet = az account set --subscription $subscriptionId
-Write-Log "az account set result: $azSubSet"
+azd env set AZURE_SUBSCRIPTION_ID $subscriptionId | Out-String | Write-Log
+azd env set AZURE_LOCATION eastus2 | Out-String | Write-Log
+azd env set AZURE_NETWORK_ISOLATION false | Out-String | Write-Log
+az account set --subscription $subscriptionId | Out-String | Write-Log
 
 Write-Log "Provisioning environment..."
 Write-Host "Starting provisioning... this may take several minutes."
 $provisionResult = azd provision --environment dev-lab 2>&1 | Tee-Object -FilePath $logFile -Append
-Write-Log "azd provision complete."
+Write-Log "azd provision result captured."
 
-Write-Log "Deploying environment..."
-# Add deployment logic here and log it similarly
+if ($provisionResult -match "Key Vault.*already exists in deleted state") {
+    Write-Host "Soft-deleted Key Vault exists. Attempting to recover or generate a new name..."
+    Write-Log "Detected Key Vault soft-delete issue."
+
+    $kvName = ($provisionResult | Select-String -Pattern "Key Vault: (kv[\w-]+)").Matches.Groups[1].Value
+    if ($kvName) {
+        try {
+            Write-Log "Trying to purge $kvName"
+            az keyvault purge --name $kvName --location eastus2 | Out-String | Write-Log
+            Start-Sleep -Seconds 15
+            Write-Log "Retrying provisioning after purge."
+            $retryProvision = azd provision --environment dev-lab 2>&1 | Tee-Object -FilePath $logFile -Append
+        }
+        catch {
+            Write-Host "Purge failed or not permitted. Generating unique Key Vault name..."
+            Write-Log "Purge failed for $kvName. Generating a new name."
+            $uniqueSuffix = Get-Random -Minimum 1000 -Maximum 9999
+            $newKvName = "$kvName$uniqueSuffix"
+            Write-Log "Generated new Key Vault name: $newKvName"
+
+            $yamlPath = "$deployPath\azure.yaml"
+            (Get-Content $yamlPath) -replace $kvName, $newKvName | Set-Content $yamlPath
+            Write-Log "Updated azure.yaml with new Key Vault name."
+
+            Write-Host "Retrying provisioning with updated Key Vault name..."
+            $retryProvision = azd provision --environment dev-lab 2>&1 | Tee-Object -FilePath $logFile -Append
+        }
+        Write-Log "Retry provision result: $retryProvision"
+    } else {
+        Write-Log "Could not extract Key Vault name from error message."
+    }
+}
 
 Write-Log "Getting web app URL..."
 $resourceGroup  = az group list --query "[?contains(name, 'rg-dev-lab')].name" -o tsv
