@@ -133,13 +133,14 @@ $env:AZURE_SUBSCRIPTION_ID = $subscriptionId
 azd env set AZURE_SUBSCRIPTION_ID $subscriptionId | Out-Null
 azd env set AZURE_LOCATION eastus2 | Out-Null
 azd env set AZURE_NETWORK_ISOLATION true | Out-Null
-
+$env:AZURE_DEFAULT_SUBSCRIPTION = $subscriptionId
 az account set --subscription $subscriptionId | Out-Null
 
 # === [10] Provision Infrastructure ===
 Write-Log "Provisioning infrastructure (debug mode)..."
 Start-Job -ScriptBlock {
     $env:AZURE_SUBSCRIPTION_ID = $using:subscriptionId
+    $env:AZURE_DEFAULT_SUBSCRIPTION = $using:subscriptionId
     azd provision --environment dev-lab --debug *>&1 |
         Tee-Object -FilePath $using:azdLog -Append
 } | Wait-Job | Out-Null
