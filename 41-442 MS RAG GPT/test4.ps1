@@ -131,7 +131,7 @@ $location       = "eastus2"  # Adjust if needed
 
 azd env set AZURE_SUBSCRIPTION_ID $subscriptionId | Out-Null
 azd env set AZURE_LOCATION $location | Out-Null
-azd env set AZURE_NETWORK_ISOLATION true | Out-Null
+azd env set AZURE_NETWORK_ISOLATION false | Out-Null
 $env:AZURE_SUBSCRIPTION_ID = $subscriptionId
 
 az account set --subscription $subscriptionId | Out-Null
