@@ -127,33 +127,43 @@ if ($failures.Count -gt 0) {
 # === [9] Configure azd Environment ===
 Write-Log "Configuring azd environment settings..."
 $subscriptionId = $env:LAB_SUBSCRIPTION_ID
-$azdLog = "C:\labfiles\azd.log"
+$location       = "eastus2"  # Adjust if needed
 
-az account set --subscription $subscriptionId | Out-Null
 azd env set AZURE_SUBSCRIPTION_ID $subscriptionId | Out-Null
-azd env set AZURE_LOCATION eastus2 | Out-Null
+azd env set AZURE_LOCATION $location | Out-Null
 azd env set AZURE_NETWORK_ISOLATION true | Out-Null
 $env:AZURE_SUBSCRIPTION_ID = $subscriptionId
 
-# Optional: suppress config reinitialization
-$configPath = "$env:USERPROFILE\.azd\config.json"
-if (-not (Test-Path $configPath)) {
-    Write-Output "{}" | Set-Content -Path $configPath -Encoding UTF8
-    Write-Log "Created empty config to suppress redundant azd config initialization."
+az account set --subscription $subscriptionId | Out-Null
+
+# === [10] Purge Soft-Deleted Key Vault if Exists ===
+# Adjust this name to match your template logic
+$kvName = "kv-dev-lab-$($subscriptionId.Substring(0, 5))"  # Example name pattern
+
+Write-Log "Checking for soft-deleted Key Vault: $kvName"
+try {
+    $deletedKV = az keyvault list-deleted --query "[?name=='$kvName']" -o json | ConvertFrom-Json
+    if ($deletedKV) {
+        Write-Log "Soft-deleted Key Vault found. Attempting purge..."
+        az keyvault purge --name $kvName --location $location | Out-Null
+        Write-Log "Key Vault purged: $kvName"
+    } else {
+        Write-Log "No soft-deleted Key Vault found."
+    }
+} catch {
+    Write-Log "Error checking or purging Key Vault: $($_.Exception.Message)"
 }
 
-# === [10] Provision Infrastructure ===
+# === [11] Provision Infrastructure ===
 Write-Log "Provisioning infrastructure (debug mode)..."
+Start-Job -ScriptBlock {
+    $env:AZURE_SUBSCRIPTION_ID = $using:subscriptionId
+    azd provision --environment dev-lab --debug *>&1 |
+        Tee-Object -FilePath $using:azdLog -Append
+} | Wait-Job | Out-Null
 
-$startTime = Get-Date
-Write-Log "Provisioning started at $startTime"
-
-azd provision --environment dev-lab --debug *>&1 | Tee-Object -FilePath $azdLog -Append
-
-$endTime = Get-Date
-Write-Log "Provisioning ended at $endTime"
-Write-Log "Provisioning duration: $([math]::Round(($endTime - $startTime).TotalMinutes,2)) minutes"
 Write-Log "Provisioning complete. Logs written to: $azdLog"
+
 
 
 
