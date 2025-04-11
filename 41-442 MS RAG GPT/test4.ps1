@@ -135,7 +135,7 @@ $clientSecret   = $env:LAB_CLIENT_SECRET
 # Set azd environment variables
 azd env set AZURE_SUBSCRIPTION_ID $subscriptionId | Out-Null
 azd env set AZURE_LOCATION eastus2 | Out-Null
-azd env set AZURE_NETWORK_ISOLATION true | Out-Null
+azd env set AZURE_NETWORK_ISOLATION false | Out-Null
 
 # Also ensure these are available to subprocesses
 $env:AZURE_SUBSCRIPTION_ID = $subscriptionId
@@ -143,6 +143,8 @@ $env:AZURE_CLIENT_ID       = $clientId
 $env:AZURE_CLIENT_SECRET   = $clientSecret
 $env:AZURE_TENANT_ID       = $tenantId
 $env:AZD_NON_INTERACTIVE   = "true"
+az configure --defaults group="<your-resource-group>" location="eastus2" subscription="$subscriptionId"
+
 
 az account set --subscription $subscriptionId | Out-Null
 Write-Log "azd environment configured for subscription: $subscriptionId"
@@ -163,6 +165,8 @@ Start-Job -ScriptBlock {
         --tenant   $env:AZURE_TENANT_ID | Out-Null
 
     az account set --subscription $env:AZURE_SUBSCRIPTION_ID | Out-Null
+    az configure --defaults group="<your-resource-group>" location="eastus2" subscription="$subscriptionId"
+
 
     azd provision --environment dev-lab --debug *>&1 |
         Tee-Object -FilePath $using:azdLog -Append
