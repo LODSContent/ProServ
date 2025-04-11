@@ -138,12 +138,22 @@ az account set --subscription $subscriptionId | Out-Null
 
 # === [10] Provision Infrastructure ===
 Write-Log "Provisioning infrastructure (debug mode)..."
+Write-Log "Explicitly setting AZURE_SUBSCRIPTION_ID in environment."
+$env:AZURE_SUBSCRIPTION_ID = $subscriptionId
+$env:AZURE_DEFAULT_SUBSCRIPTION = $subscriptionId
+az account show
+
 Start-Job -ScriptBlock {
-    $env:AZURE_SUBSCRIPTION_ID = $using:subscriptionId
-    $env:AZURE_DEFAULT_SUBSCRIPTION = $using:subscriptionId
-    azd provision --environment dev-lab --debug *>&1 |
+    $env:AZURE_SUBSCRIPTION_ID        = $using:subscriptionId
+    $env:AZURE_DEFAULT_SUBSCRIPTION   = $using:subscriptionId
+
+    azd provision `
+        --environment dev-lab `
+        --subscription-id $using:subscriptionId `
+        --debug *>&1 |
         Tee-Object -FilePath $using:azdLog -Append
 } | Wait-Job | Out-Null
+
 
 Write-Log "Provisioning complete. Logs written to: $azdLog"
 
