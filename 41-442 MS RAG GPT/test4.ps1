@@ -125,36 +125,23 @@ if ($failures.Count -gt 0) {
 }
 
 # === [9] Configure azd Environment ===
+# [9] Configure azd Environment
 Write-Log "Configuring azd environment settings..."
-
 $subscriptionId = $env:LAB_SUBSCRIPTION_ID
-# Set for current and background job
-$env:AZURE_SUBSCRIPTION_ID = $subscriptionId  
 azd env set AZURE_SUBSCRIPTION_ID $subscriptionId | Out-Null
 azd env set AZURE_LOCATION eastus2 | Out-Null
 azd env set AZURE_NETWORK_ISOLATION true | Out-Null
-$env:AZURE_DEFAULT_SUBSCRIPTION = $subscriptionId
+
+# Set az CLI subscription context in this session
 az account set --subscription $subscriptionId | Out-Null
 
-# === [10] Provision Infrastructure ===
+# [10] Provision Infrastructure in a background job
 Write-Log "Provisioning infrastructure (debug mode)..."
-Write-Log "Explicitly setting AZURE_SUBSCRIPTION_ID in environment."
-$env:AZURE_SUBSCRIPTION_ID = $subscriptionId
-$env:AZURE_DEFAULT_SUBSCRIPTION = $subscriptionId
-az account show
-
 Start-Job -ScriptBlock {
-    $env:AZURE_SUBSCRIPTION_ID        = $using:subscriptionId
-    $env:AZURE_DEFAULT_SUBSCRIPTION   = $using:subscriptionId
-
-    azd provision `
-        --environment dev-lab `
-        --subscription-id $using:subscriptionId `
-        --debug *>&1 |
+    $env:AZURE_SUBSCRIPTION_ID = $using:subscriptionId
+    azd provision --environment dev-lab --debug *>&1 |
         Tee-Object -FilePath $using:azdLog -Append
 } | Wait-Job | Out-Null
-
-
 Write-Log "Provisioning complete. Logs written to: $azdLog"
 
 
