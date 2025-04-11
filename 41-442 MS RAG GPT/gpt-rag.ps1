@@ -93,7 +93,7 @@ Get-ChildItem | ForEach-Object { Write-Log $_.FullName }
 Write-Log "Setting subscription to $subscriptionId location eastus2."
 azd env set AZURE_SUBSCRIPTION_ID $subscriptionId | Out-Null
 azd env set AZURE_LOCATION eastus2 | Out-Null
-azd env set AZURE_NETWORK_ISOLATION true | Out-Null
+azd env set AZURE_NETWORK_ISOLATION false | Out-Null
 az account set --subscription $subscriptionId | Out-Null
 
 
@@ -110,7 +110,7 @@ Write-Host "Provisioning complete."
 
 Write-Log "Deploying environment..."
 #azd deploy --environment dev-lab | Out-Null
-azd deploy --environment dev-lab 2>&1 | Tee-Object -FilePath $logFile -Append
+#azd deploy --environment dev-lab 2>&1 | Tee-Object -FilePath $logFile -Append
 
 
 # # 8) Post-Deployment Resource Discovery
