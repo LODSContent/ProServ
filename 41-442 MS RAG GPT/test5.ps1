@@ -16,7 +16,9 @@ $tenantId      = $env:LAB_TENANT_ID
 $subscriptionId= $env:LAB_SUBSCRIPTION_ID
 $clientId      = $env:LAB_CLIENT_ID
 $clientSecret  = $env:LAB_CLIENT_SECRET
-$labInstanceId = $env:LAB_INSTANCE_ID
+#$labInstanceId = $env:LAB_INSTANCE_ID
+$labInstanceId = "@lab.LabInstance.Id"
+
 
 if (-not $AdminUserName -or -not $AdminPassword) {
     Write-Host "Lab user credentials not found in environment variables. Exiting."
