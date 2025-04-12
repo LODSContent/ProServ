@@ -1,121 +1,130 @@
-#
-# gpt-rag.ps1 (Updated: Uses token-based Key Vault name via env variable)
-#
+# LCA_RunRAGGitHubScript_WithWait.ps1
 
-$logFile = "C:\labfiles\progress.log"
-function Write-Log($msg) {
-    $stamp = (Get-Date).ToString("yyyy-MM-dd HHmmss")
-    Add-Content $logFile "[INFO] $stamp $msg"
+$transcriptPath = "C:\labfiles\transcript.log"
+$progressLog    = "C:\labfiles\progress.log"
+$scriptUrl      = "https://raw.githubusercontent.com/LODSContent/ProServ/refs/heads/main/41-442%20MS%20RAG%20GPT/test5.ps1"
+$labInstanceId  = "@lab.LabInstance.Id"
+
+# Ensure a labfiles folder exists
+if (-not (Test-Path "C:\labfiles")) {
+    New-Item -Path "C:\labfiles" -ItemType Directory | Out-Null
 }
 
-Write-Log "Script started in GitHub version."
+# Clear old logs
+Remove-Item $transcriptPath, $progressLog -ErrorAction SilentlyContinue
 
-$AdminUserName = $env:LAB_ADMIN_USERNAME
-$AdminPassword = $env:LAB_ADMIN_PASSWORD
-$tenantId      = $env:LAB_TENANT_ID
-$subscriptionId= $env:LAB_SUBSCRIPTION_ID
-$clientId      = $env:LAB_CLIENT_ID
-$clientSecret  = $env:LAB_CLIENT_SECRET
-#$labInstanceId = $env:LAB_INSTANCE_ID
-$labInstanceId = "@lab.LabInstance.Id"
+# Start transcript
+Start-Transcript -Path $transcriptPath -IncludeInvocationHeader -Force
 
+# --------------------------------------------------
+# [1] WAIT LOOP FOR INTERNET
+# --------------------------------------------------
+$destination = "github.com"
+$maxAttempts = 5
+$attempt     = 0
+$haveInternet= $false
 
-if (-not $AdminUserName -or -not $AdminPassword) {
-    Write-Host "Lab user credentials not found in environment variables. Exiting."
-    Write-Log "Missing LAB_ADMIN_USERNAME or LAB_ADMIN_PASSWORD."
+while (-not $haveInternet -and $attempt -lt $maxAttempts) {
+    $ping = Test-Connection $destination -Count 1 -Quiet
+    if ($ping) {
+        $haveInternet = $true
+    } else {
+        $attempt++
+        Write-Host "No internet on attempt $attempt of $maxAttempts. Waiting 15 seconds..."
+        Add-Content $progressLog "[INFO] No internet on attempt $attempt of $maxAttempts. Waiting 15 seconds..."
+        Start-Sleep -Seconds 15
+    }
+}
+
+if ($haveInternet) {
+    Write-Host "Internet connectivity confirmed."
+    Add-Content $progressLog "[INFO] Internet connectivity confirmed."
+} else {
+    Write-Warning "No internet after $maxAttempts attempts. Continuing anyway."
+    Add-Content $progressLog "[WARNING] No internet after $maxAttempts attempts. Continuing..."
+}
+
+# --------------------------------------------------
+# [2] GET TOKENS FOR LAB CREDENTIALS
+# --------------------------------------------------
+$adminUser    = '@lab.CloudPortalCredential(User1).Username'
+$adminPass    = '@lab.CloudPortalCredential(User1).Password'
+$tenantId     = '@lab.CloudSubscription.TenantId'
+$subscription = '@lab.CloudSubscription.Id'
+$location     = "eastus2"  # Optional: Use Skillable token here if available
+
+# Verify tokens were replaced
+if ($adminUser -like '@lab.*' -or $subscription -like '@lab.*') {
+    Write-Host "Tokens not replaced. Exiting."
+    Add-Content $progressLog "[ERROR] Tokens not replaced."
+    Stop-Transcript
     return
 }
-if (-not $tenantId -or -not $subscriptionId) {
-    Write-Host "Subscription or Tenant ID missing. Exiting."
-    Write-Log "Missing LAB_TENANT_ID or LAB_SUBSCRIPTION_ID."
-    return
-}
-if (-not $clientId -or -not $clientSecret) {
-    Write-Host "Service principal clientId/clientSecret missing. Exiting."
-    Write-Log "Missing LAB_CLIENT_ID or LAB_CLIENT_SECRET."
-    return
-}
-if (-not $labInstanceId) {
-    Write-Host "Lab instance ID missing. Exiting."
-    Write-Log "Missing LAB_INSTANCE_ID."
-    return
-}
 
-Write-Host "Lab user: $AdminUserName"
-Write-Host "Tenant:  $tenantId"
-Write-Host "Sub:     $subscriptionId"
-Write-Host "Lab ID:  $labInstanceId"
-Write-Log  "Environment variables loaded."
+Add-Content $progressLog "[INFO] Lab tokens replaced. User=$adminUser, Sub=$subscription, Tenant=$tenantId"
 
+# --------------------------------------------------
+# [3] DOWNLOAD RAW GITHUB SCRIPT (NO TOKENS)
+# --------------------------------------------------
+Write-Host "Downloading script from: $scriptUrl"
 try {
-    $labCred = New-Object System.Management.Automation.PSCredential(
-        $AdminUserName,
-        (ConvertTo-SecureString $AdminPassword -AsPlainText -Force)
-    )
-    $azLoginResult = Connect-AzAccount -Credential $labCred
-    Write-Log "Connected to Az using lab credentials."
+    $rawScript = (Invoke-WebRequest -Uri $scriptUrl -UseBasicParsing).Content
+    Add-Content $progressLog "[INFO] Downloaded script from GitHub."
 }
 catch {
-    Write-Host "Login with lab credentials failed: $($_.Exception.Message)"
-    Write-Log  "Lab credentials login failed."
+    Write-Host "Failed to download script: $($_.Exception.Message)"
+    Add-Content $progressLog "[ERROR] Download script failed: $($_.Exception.Message)"
+    Stop-Transcript
     return
 }
 
-$env:AZURE_CLIENT_ID     = $clientId
-$env:AZURE_CLIENT_SECRET = $clientSecret
-$env:AZURE_TENANT_ID     = $tenantId
-$env:AZD_NON_INTERACTIVE = "true"
-$env:LAB_INSTANCE_ID = $labInstanceId
+# --------------------------------------------------
+# [4] BUILD PROCESSSTARTINFO AND PASS ENV VARS
+# --------------------------------------------------
+$startInfo = New-Object System.Diagnostics.ProcessStartInfo
+$startInfo.FileName  = "pwsh.exe"
+$startInfo.Arguments = "-NoProfile -EncodedCommand REPLACE_ME"
+$startInfo.UseShellExecute = $false
+$startInfo.RedirectStandardOutput = $false
+$startInfo.RedirectStandardError  = $false
 
-Write-Log "Logging in with service principal for azd + az."
-$azdLoginResult = azd auth login --client-id $clientId --client-secret $clientSecret --tenant-id $tenantId
-Write-Log "azd login result: $azdLoginResult"
-$azSpLoginResult = az login --service-principal --username $clientId --password $clientSecret --tenant $tenantId
-Write-Log "az login result: $($azSpLoginResult | ConvertTo-Json -Depth 3)"
+# Environment variables for the GitHub script
+$startInfo.Environment["LAB_ADMIN_USERNAME"]  = $adminUser
+$startInfo.Environment["LAB_ADMIN_PASSWORD"]  = $adminPass
+$startInfo.Environment["LAB_TENANT_ID"]       = $tenantId
+$startInfo.Environment["LAB_SUBSCRIPTION_ID"] = $subscription
+$startInfo.Environment["LAB_CLIENT_ID"]       = "45587fa8-5f05-46d9-8d71-595d74062152"
+$startInfo.Environment["LAB_CLIENT_SECRET"]   = "qw5148hvEKmywm9J4RVdUcdAxkD2bxEPRhRfseNRYcQ="
+$startInfo.Environment["LAB_INSTANCE_ID"]     = $labInstanceId
+$startInfo.Environment["LAB_LOCATION"]        = $location
 
-$deployPath = "$HOME\gpt-rag-deploy"
-Write-Log "Cleaning deployment folder $deployPath"
-Remove-Item -Recurse -Force $deployPath -ErrorAction SilentlyContinue | Out-String | Write-Log
-New-Item -ItemType Directory -Path $deployPath -Force | Out-String | Write-Log
-Set-Location $deployPath
+# --------------------------------------------------
+# [5] ENCODE THE SCRIPT FOR pwsh -EncodedCommand
+# --------------------------------------------------
+$bytes   = [System.Text.Encoding]::Unicode.GetBytes($rawScript)
+$encoded = [Convert]::ToBase64String($bytes)
+$startInfo.Arguments = "-NoProfile -EncodedCommand $encoded"
 
-$env:AZD_SKIP_UPDATE_CHECK = "true"
-Write-Host "Initializing GPT-RAG template..."
-$azdInitResult = azd init -t azure/gpt-rag -b workshop -e dev-lab
-Write-Log "azd init result: $azdInitResult"
+Add-Content $progressLog "[INFO] Prepared script for pwsh -EncodedCommand."
 
-Write-Log "Files after azd init:"
-Get-ChildItem -Recurse | ForEach-Object { Write-Log $_.FullName }
+# --------------------------------------------------
+# [6] LAUNCH THE SCRIPT
+# --------------------------------------------------
+try {
+    $proc = [System.Diagnostics.Process]::Start($startInfo)
+    Add-Content $progressLog "[INFO] GitHub script launched. PID=$($proc.Id)"
 
-# --- Set Key Vault name dynamically from labInstanceId via environment ---
-$newKvName = "kv-$labInstanceId"
-$kvFiles = Get-ChildItem -Recurse -Include *.bicep,*.json
-foreach ($file in $kvFiles) {
-    (Get-Content $file.FullName) -replace 'kv0-[a-z0-9]+' , $newKvName | Set-Content $file.FullName
-    Write-Log "Updated Key Vault name in: $($file.FullName)"
+    while (-not $proc.HasExited) {
+        Write-Host "GitHub script (PID=$($proc.Id)) is running $(Get-Date)"
+        Start-Sleep 5
+    }
+
+    Add-Content $progressLog "[INFO] Script completed at $(Get-Date)"
+    Write-Host "Script finished."
+}
+catch {
+    Write-Warning "Failed to launch the GitHub script."
+    Add-Content $progressLog "[ERROR] $($_.Exception.Message)"
 }
 
-azd env set AZURE_KEY_VAULT_NAME $newKvName | Out-String | Write-Log
-Write-Log "Set AZURE_KEY_VAULT_NAME to: $newKvName"
-
-Write-Log "Setting subscription to $subscriptionId location eastus2."
-azd env set AZURE_SUBSCRIPTION_ID $subscriptionId | Out-String | Write-Log
-azd env set AZURE_LOCATION eastus2 | Out-String | Write-Log
-azd env set AZURE_NETWORK_ISOLATION false | Out-String | Write-Log
-az account set --subscription $subscriptionId | Out-String | Write-Log
-
-Write-Log "Provisioning environment..."
-Write-Host "Starting provisioning... this may take several minutes."
-$provisionResult = azd provision --environment dev-lab 2>&1 | Tee-Object -FilePath $logFile -Append
-Write-Log "azd provision result captured."
-
-Write-Log "Getting web app URL..."
-$resourceGroup  = az group list --query "[?contains(name, 'rg-dev-lab')].name" -o tsv
-$webAppName = az resource list --resource-group $resourceGroup --resource-type "Microsoft.Web/sites" --query "[?contains(name, 'webgpt')].name" -o tsv
-$webAppUrl  = az webapp show --name $webAppName --resource-group $resourceGroup --query "defaultHostName" -o tsv
-
-Write-Host "Your GPT solution is live at: https://$webAppUrl"
-Write-Log  "Deployment complete. URL: https://$webAppUrl"
-
-Write-Host "Done."
-Write-Log "Script completed."
+Stop-Transcript
