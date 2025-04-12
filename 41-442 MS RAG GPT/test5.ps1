@@ -1,5 +1,5 @@
 #
-# gpt-rag.ps1 (Updated: Always use unique Key Vault name before provisioning)
+# gpt-rag.ps1 (Updated: Uses token-based Key Vault name via env variable)
 #
 
 $logFile = "C:\labfiles\progress.log"
@@ -16,6 +16,7 @@ $tenantId      = $env:LAB_TENANT_ID
 $subscriptionId= $env:LAB_SUBSCRIPTION_ID
 $clientId      = $env:LAB_CLIENT_ID
 $clientSecret  = $env:LAB_CLIENT_SECRET
+$labInstanceId = $env:LAB_INSTANCE_ID
 
 if (-not $AdminUserName -or -not $AdminPassword) {
     Write-Host "Lab user credentials not found in environment variables. Exiting."
@@ -32,10 +33,16 @@ if (-not $clientId -or -not $clientSecret) {
     Write-Log "Missing LAB_CLIENT_ID or LAB_CLIENT_SECRET."
     return
 }
+if (-not $labInstanceId) {
+    Write-Host "Lab instance ID missing. Exiting."
+    Write-Log "Missing LAB_INSTANCE_ID."
+    return
+}
 
 Write-Host "Lab user: $AdminUserName"
 Write-Host "Tenant:  $tenantId"
 Write-Host "Sub:     $subscriptionId"
+Write-Host "Lab ID:  $labInstanceId"
 Write-Log  "Environment variables loaded."
 
 try {
@@ -58,8 +65,10 @@ $env:AZURE_TENANT_ID     = $tenantId
 $env:AZD_NON_INTERACTIVE = "true"
 
 Write-Log "Logging in with service principal for azd + az."
-azd auth login --client-id $clientId --client-secret $clientSecret --tenant-id $tenantId | Out-String | Write-Log
-az login --service-principal --username $clientId --password $clientSecret --tenant $tenantId | Out-String | Write-Log
+$azdLoginResult = azd auth login --client-id $clientId --client-secret $clientSecret --tenant-id $tenantId
+Write-Log "azd login result: $azdLoginResult"
+$azSpLoginResult = az login --service-principal --username $clientId --password $clientSecret --tenant $tenantId
+Write-Log "az login result: $($azSpLoginResult | ConvertTo-Json -Depth 3)"
 
 $deployPath = "$HOME\gpt-rag-deploy"
 Write-Log "Cleaning deployment folder $deployPath"
@@ -69,30 +78,22 @@ Set-Location $deployPath
 
 $env:AZD_SKIP_UPDATE_CHECK = "true"
 Write-Host "Initializing GPT-RAG template..."
-azd init -t azure/gpt-rag -b workshop -e dev-lab | Out-String | Write-Log
+$azdInitResult = azd init -t azure/gpt-rag -b workshop -e dev-lab
+Write-Log "azd init result: $azdInitResult"
 
 Write-Log "Files after azd init:"
-Get-ChildItem | ForEach-Object { Write-Log $_.FullName }
+Get-ChildItem -Recurse | ForEach-Object { Write-Log $_.FullName }
 
-# === DYNAMIC KEY VAULT NAME PATCH ===
-$yamlPath = "$deployPath\azure.yaml"
-if (Test-Path $yamlPath) {
-    $yamlContent = Get-Content $yamlPath -Raw
-    $kvPattern = 'kv0-[a-z0-9]+'
-    if ($yamlContent -match $kvPattern) {
-        $existingKv = [regex]::Match($yamlContent, $kvPattern).Value
-        $uniqueSuffix = Get-Random -Minimum 1000 -Maximum 9999
-        $newKvName = "kv0-" + ($existingKv.Split('-')[1]) + "$uniqueSuffix"
-        $updatedYamlContent = $yamlContent -replace $existingKv, $newKvName
-        $updatedYamlContent | Set-Content $yamlPath
-        Write-Log "Updated azure.yaml with new Key Vault name before provision: $newKvName"
-    }
-    else {
-        Write-Log "Key Vault name not found in azure.yaml, skipping dynamic rename."
-    }
-} else {
-    Write-Log "azure.yaml not found at expected path: $yamlPath"
+# --- Set Key Vault name dynamically from labInstanceId via environment ---
+$newKvName = "kv-$labInstanceId"
+$kvFiles = Get-ChildItem -Recurse -Include *.bicep,*.json
+foreach ($file in $kvFiles) {
+    (Get-Content $file.FullName) -replace 'kv0-[a-z0-9]+' , $newKvName | Set-Content $file.FullName
+    Write-Log "Updated Key Vault name in: $($file.FullName)"
 }
+
+azd env set AZURE_KEY_VAULT_NAME $newKvName | Out-String | Write-Log
+Write-Log "Set AZURE_KEY_VAULT_NAME to: $newKvName"
 
 Write-Log "Setting subscription to $subscriptionId location eastus2."
 azd env set AZURE_SUBSCRIPTION_ID $subscriptionId | Out-String | Write-Log
@@ -102,7 +103,7 @@ az account set --subscription $subscriptionId | Out-String | Write-Log
 
 Write-Log "Provisioning environment..."
 Write-Host "Starting provisioning... this may take several minutes."
-azd provision --environment dev-lab 2>&1 | Tee-Object -FilePath $logFile -Append | Out-Null
+$provisionResult = azd provision --environment dev-lab 2>&1 | Tee-Object -FilePath $logFile -Append
 Write-Log "azd provision result captured."
 
 Write-Log "Getting web app URL..."
