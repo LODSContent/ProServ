@@ -65,6 +65,7 @@ $env:AZURE_CLIENT_ID     = $clientId
 $env:AZURE_CLIENT_SECRET = $clientSecret
 $env:AZURE_TENANT_ID     = $tenantId
 $env:AZD_NON_INTERACTIVE = "true"
+$env:LAB_INSTANCE_ID = $labInstanceId
 
 Write-Log "Logging in with service principal for azd + az."
 $azdLoginResult = azd auth login --client-id $clientId --client-secret $clientSecret --tenant-id $tenantId
