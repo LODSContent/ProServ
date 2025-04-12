@@ -58,10 +58,8 @@ $env:AZURE_TENANT_ID     = $tenantId
 $env:AZD_NON_INTERACTIVE = "true"
 
 Write-Log "Logging in with service principal for azd + az."
-$azdLoginResult = azd auth login --client-id $clientId --client-secret $clientSecret --tenant-id $tenantId
-Write-Log "azd login result: $azdLoginResult"
-$azSpLoginResult = az login --service-principal --username $clientId --password $clientSecret --tenant $tenantId
-Write-Log "az login result: $($azSpLoginResult | ConvertTo-Json -Depth 3)"
+azd auth login --client-id $clientId --client-secret $clientSecret --tenant-id $tenantId | Out-String | Write-Log
+az login --service-principal --username $clientId --password $clientSecret --tenant $tenantId | Out-String | Write-Log
 
 $deployPath = "$HOME\gpt-rag-deploy"
 Write-Log "Cleaning deployment folder $deployPath"
@@ -71,34 +69,40 @@ Set-Location $deployPath
 
 $env:AZD_SKIP_UPDATE_CHECK = "true"
 Write-Host "Initializing GPT-RAG template..."
-$azdInitResult = azd init -t azure/gpt-rag -b workshop -e dev-lab
-Write-Log "azd init result: $azdInitResult"
+azd init -t azure/gpt-rag -b workshop -e dev-lab | Out-String | Write-Log
 
 Write-Log "Files after azd init:"
 Get-ChildItem | ForEach-Object { Write-Log $_.FullName }
 
-# --- Inject random Key Vault name before provisioning ---
+# === DYNAMIC KEY VAULT NAME PATCH ===
 $yamlPath = "$deployPath\azure.yaml"
-$yamlContent = Get-Content $yamlPath
-$existingKv = ($yamlContent | Select-String -Pattern 'kv\w{1,}-\w{12}').Matches.Value | Select-Object -First 1
-if ($existingKv) {
-    $uniqueSuffix = Get-Random -Minimum 1000 -Maximum 9999
-    $newKvName = "$existingKv$uniqueSuffix"
-    $yamlContent -replace $existingKv, $newKvName | Set-Content $yamlPath
-    Write-Log "Updated azure.yaml with new Key Vault name before provision: $newKvName"
+if (Test-Path $yamlPath) {
+    $yamlContent = Get-Content $yamlPath -Raw
+    $kvPattern = 'kv0-[a-z0-9]+'
+    if ($yamlContent -match $kvPattern) {
+        $existingKv = [regex]::Match($yamlContent, $kvPattern).Value
+        $uniqueSuffix = Get-Random -Minimum 1000 -Maximum 9999
+        $newKvName = "kv0-" + ($existingKv.Split('-')[1]) + "$uniqueSuffix"
+        $updatedYamlContent = $yamlContent -replace $existingKv, $newKvName
+        $updatedYamlContent | Set-Content $yamlPath
+        Write-Log "Updated azure.yaml with new Key Vault name before provision: $newKvName"
+    }
+    else {
+        Write-Log "Key Vault name not found in azure.yaml, skipping dynamic rename."
+    }
 } else {
-    Write-Log "Key Vault name not found in yaml, skipping dynamic rename."
+    Write-Log "azure.yaml not found at expected path: $yamlPath"
 }
 
 Write-Log "Setting subscription to $subscriptionId location eastus2."
 azd env set AZURE_SUBSCRIPTION_ID $subscriptionId | Out-String | Write-Log
 azd env set AZURE_LOCATION eastus2 | Out-String | Write-Log
-azd env set AZURE_NETWORK_ISOLATION true | Out-String | Write-Log
+azd env set AZURE_NETWORK_ISOLATION false | Out-String | Write-Log
 az account set --subscription $subscriptionId | Out-String | Write-Log
 
 Write-Log "Provisioning environment..."
 Write-Host "Starting provisioning... this may take several minutes."
-$provisionResult = azd provision --environment dev-lab 2>&1 | Tee-Object -FilePath $logFile -Append
+azd provision --environment dev-lab 2>&1 | Tee-Object -FilePath $logFile -Append | Out-Null
 Write-Log "azd provision result captured."
 
 Write-Log "Getting web app URL..."
