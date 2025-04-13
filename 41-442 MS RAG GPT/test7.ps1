@@ -102,7 +102,7 @@ Write-Log "Set AZURE_KEY_VAULT_NAME to $newKvName"
 # 8) Configure environment
 azd env set AZURE_SUBSCRIPTION_ID $subscriptionId | Out-Null
 azd env set AZURE_LOCATION $location | Out-Null
-azd env set AZURE_NETWORK_ISOLATION false | Out-Null
+azd env set AZURE_NETWORK_ISOLATION true | Out-Null
 az account set --subscription $subscriptionId | Out-Null
 Write-Log "Environment configured."
 
