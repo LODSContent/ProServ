@@ -112,9 +112,36 @@ Write-Host "Starting provisioning... this may take several minutes."
 azd provision --environment dev-lab 2>&1 | Tee-Object -FilePath $logFile -Append
 Write-Log "azd provision complete."
 
+
+# Discover the resource group and set AZURE_RESOURCE_GROUP for post-deploy scripts
+Write-Log "Discovering resource group for AZURE_RESOURCE_GROUP..."
+$resourceGroup = az group list --query "[?contains(name, 'rg-dev-lab')].name" -o tsv
+if (-not $resourceGroup) {
+    Write-Host "Failed to discover resource group. Exiting."
+    Write-Log "Failed to detect resource group. Cannot continue deployment."
+    return
+}
+azd env set AZURE_RESOURCE_GROUP $resourceGroup | Out-Null
+Write-Log "Set AZURE_RESOURCE_GROUP to $resourceGroup"
+
+
 # 10) Deploy
+# Set AZURE_RESOURCE_GROUP before deploying
+Write-Log "Preparing environment variables for deployment..."
+$resourceGroup = az group list --query "[?contains(name, 'rg-dev-lab')].name" -o tsv
+if (-not $resourceGroup) {
+    Write-Host "Failed to discover resource group. Exiting."
+    Write-Log "Failed to detect resource group. Cannot continue deployment."
+    return
+}
+azd env set AZURE_RESOURCE_GROUP $resourceGroup | Out-Null
+Write-Log "Set AZURE_RESOURCE_GROUP to $resourceGroup"
+
+# Now run deployment
 Write-Log "Deploying environment..."
 azd deploy --environment dev-lab 2>&1 | Tee-Object -FilePath $logFile -Append
+
+#azd deploy --environment dev-lab 2>&1 | Tee-Object -FilePath $logFile -Append
 
 # 11) Post-Deployment Resource Discovery
 Write-Log "Discovering resource names..."
