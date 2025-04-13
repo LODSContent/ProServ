@@ -17,7 +17,7 @@ $tenantId       = $env:LAB_TENANT_ID
 $subscriptionId = $env:LAB_SUBSCRIPTION_ID
 $clientId       = $env:LAB_CLIENT_ID
 $clientSecret   = $env:LAB_CLIENT_SECRET
-$labInstanceId  = "@lab.LabInstance.Id"
+$labInstanceId  = $env:LAB_INSTANCE_ID
 $location       = $env:LAB_LOCATION
 if (-not $location) { $location = "eastus2" }
 
