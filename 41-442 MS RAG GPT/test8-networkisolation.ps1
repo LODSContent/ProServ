@@ -45,6 +45,7 @@ $env:AZD_NON_INTERACTIVE = "true"
 $env:LAB_INSTANCE_ID     = $labInstanceId
 azd auth login --client-id $clientId --client-secret $clientSecret --tenant-id $tenantId | Out-Null
 az login --service-principal --username $clientId --password $clientSecret --tenant $tenantId | Out-Null
+azd env set AZURE_NETWORK_ISOLATION true | Out-Null
 Write-Log "Logged in with service principal."
 
 # Quota and Role Check
@@ -75,7 +76,7 @@ Write-Log "Set AZURE_KEY_VAULT_NAME to $newKvName"
 # Configure
 azd env set AZURE_SUBSCRIPTION_ID $subscriptionId | Out-Null
 azd env set AZURE_LOCATION $location | Out-Null
-azd env set AZURE_NETWORK_ISOLATION true | Out-Null
+#azd env set AZURE_NETWORK_ISOLATION true | Out-Null
 az account set --subscription $subscriptionId | Out-Null
 Write-Log "Environment configured."
 
