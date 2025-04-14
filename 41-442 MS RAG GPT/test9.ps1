@@ -88,6 +88,14 @@ Write-Host "Initializing GPT-RAG template..."
 azd init -t azure/gpt-rag -b workshop -e dev-lab | Tee-Object -FilePath $logFile -Append
 Write-Log "azd init complete."
 
+Write-Log "Setting AZURE_NETWORK_ISOLATION to true..."
+$niResult = azd env set AZURE_NETWORK_ISOLATION true 2>&1 | Tee-Object -FilePath $logFile -Append
+Write-Log "azd env set result: $niResult"
+
+$niConfirm = azd env get AZURE_NETWORK_ISOLATION 2>&1
+Write-Log "Confirmed AZURE_NETWORK_ISOLATION value: $niConfirm"
+
+
 # 7) Replace Key Vault name dynamically
 $newKvName = "kv-$labInstanceId"
 $kvFiles = Get-ChildItem -Recurse -Include *.bicep,*.json -ErrorAction SilentlyContinue
@@ -102,7 +110,7 @@ Write-Log "Set AZURE_KEY_VAULT_NAME to $newKvName"
 Write-Log "Setting azd environment variables..."
 azd env set AZURE_SUBSCRIPTION_ID $subscriptionId | Tee-Object -FilePath $logFile -Append
 azd env set AZURE_LOCATION $location | Tee-Object -FilePath $logFile -Append
-azd env set AZURE_NETWORK_ISOLATION true | Tee-Object -FilePath $logFile -Append
+#azd env set AZURE_NETWORK_ISOLATION true | Tee-Object -FilePath $logFile -Append
 az account set --subscription $subscriptionId | Tee-Object -FilePath $logFile -Append
 Write-Log "Environment configured."
 
