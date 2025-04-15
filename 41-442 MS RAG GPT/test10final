@@ -157,7 +157,7 @@ Write-Log "Environment configured."
 # 9) Provision resources
 Write-Log "Provisioning environment..."
 Write-Host "Starting provisioning... this may take several minutes."
-azd provision --environment dev-lab --verbose 2>&1 | Tee-Object -FilePath $logFile -Append
+azd provision --environment dev-lab 2>&1 | Tee-Object -FilePath $logFile -Append
 Write-Log "azd provision complete."
 
 # Discover RG
