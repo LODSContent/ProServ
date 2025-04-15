@@ -182,15 +182,15 @@ if (-not $resourceGroup) {
 azd env set AZURE_RESOURCE_GROUP $resourceGroup | Tee-Object -FilePath $logFile -Append
 Write-Log "Set AZURE_RESOURCE_GROUP to $resourceGroup"
 
-# 10) Deploy
-Write-Log "Deploying environment..."
-azd deploy --environment dev-lab 2>&1 | Tee-Object -FilePath $logFile -Append
+# # 10) Deploy
+# Write-Log "Deploying environment..."
+# azd deploy --environment dev-lab 2>&1 | Tee-Object -FilePath $logFile -Append
 
-# 11) Post-Deployment Resource Discovery
-Write-Log "Discovering deployed resources..."
-$storageAccount = az resource list --resource-group $resourceGroup --resource-type "Microsoft.Storage/storageAccounts" --query "sort_by([?type=='Microsoft.Storage/storageAccounts'], &length(name))[0].name" -o tsv
-$ingestionFunc  = az resource list --resource-group $resourceGroup --resource-type "Microsoft.Web/sites" --query "[?contains(name, 'inges')].name" -o tsv
-$orchestratorFunc = az resource list --resource-group $resourceGroup --resource-type "Microsoft.Web/sites" --query "[?contains(name, 'orch')].name" -o tsv
+# # 11) Post-Deployment Resource Discovery
+# Write-Log "Discovering deployed resources..."
+# $storageAccount = az resource list --resource-group $resourceGroup --resource-type "Microsoft.Storage/storageAccounts" --query "sort_by([?type=='Microsoft.Storage/storageAccounts'], &length(name))[0].name" -o tsv
+# $ingestionFunc  = az resource list --resource-group $resourceGroup --resource-type "Microsoft.Web/sites" --query "[?contains(name, 'inges')].name" -o tsv
+# $orchestratorFunc = az resource list --resource-group $resourceGroup --resource-type "Microsoft.Web/sites" --query "[?contains(name, 'orch')].name" -o tsv
 
 # 12) Assign Storage Blob Data Contributor
 Write-Log "Assigning role: Storage Blob Data Contributor..."
@@ -204,17 +204,17 @@ az functionapp restart --name $ingestionFunc --resource-group $resourceGroup | O
 az functionapp config appsettings set --name $orchestratorFunc --resource-group $resourceGroup --settings AUTOGEN_ORCHESTRATION_STRATEGY=multimodal_rag | Out-Null
 az functionapp restart --name $orchestratorFunc --resource-group $resourceGroup | Out-Null
 
-# 14) Ingest PDF
-Write-Log "Ingesting PDF to documents container..."
-$pdfUrl  = "https://raw.githubusercontent.com/Azure/GPT-RAG/insiders/datasources/surface-pro-4-user-guide-EN.pdf"
-$pdfPath = "$env:TEMP\surface-pro-4-user-guide-EN.pdf"
-try {
-    Invoke-WebRequest -Uri $pdfUrl -OutFile $pdfPath
-    az storage blob upload --account-name $storageAccount --container-name documents --name surface-pro-4-user-guide-EN.pdf --file $pdfPath --auth-mode login --overwrite | Out-Null
-    Write-Log "PDF uploaded successfully."
-} catch {
-    Write-Log "PDF ingestion failed: $($_.Exception.Message)"
-}
+# # 14) Ingest PDF
+# Write-Log "Ingesting PDF to documents container..."
+# $pdfUrl  = "https://raw.githubusercontent.com/Azure/GPT-RAG/insiders/datasources/surface-pro-4-user-guide-EN.pdf"
+# $pdfPath = "$env:TEMP\surface-pro-4-user-guide-EN.pdf"
+# try {
+#     Invoke-WebRequest -Uri $pdfUrl -OutFile $pdfPath
+#     az storage blob upload --account-name $storageAccount --container-name documents --name surface-pro-4-user-guide-EN.pdf --file $pdfPath --auth-mode login --overwrite | Out-Null
+#     Write-Log "PDF uploaded successfully."
+# } catch {
+#     Write-Log "PDF ingestion failed: $($_.Exception.Message)"
+# }
 
 # 15) Output web app URL
 Write-Log "Getting web app URL..."
