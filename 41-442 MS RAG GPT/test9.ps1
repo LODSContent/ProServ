@@ -84,16 +84,27 @@ Set-Location $deployPath
 
 # 6) Init GPT-RAG template
 $env:AZD_SKIP_UPDATE_CHECK = "true"
+$env:AZD_NON_INTERACTIVE = "true"
+$env:AZD_DEFAULT_YES = "true"
 Write-Host "Initializing GPT-RAG template..."
-azd init -t azure/gpt-rag -b workshop -e dev-lab | Tee-Object -FilePath $logFile -Append
+azd init -t azure/gpt-rag -b workshop -e dev-lab --no-prompt | Tee-Object -FilePath $logFile -Append
 Write-Log "azd init complete."
 
+# 6.1) Set AZURE_NETWORK_ISOLATION = true
 Write-Log "Setting AZURE_NETWORK_ISOLATION to true..."
-$niResult = azd env set AZURE_NETWORK_ISOLATION true 2>&1 | Tee-Object -FilePath $logFile -Append
-Write-Log "azd env set result: $niResult"
+$niResult = azd env set "AZURE_NETWORK_ISOLATION" "true" --no-prompt 2>&1 | Tee-Object -FilePath $logFile -Append
 
-$niConfirm = azd env get AZURE_NETWORK_ISOLATION 2>&1
+if ($niResult -match 'Usage\s+azd env') {
+    Write-Log "[ERROR] azd env set failed – command returned help text. Possible quoting issue or azd version mismatch."
+} elseif ($niResult -match '\[Y/n\]') {
+    Write-Log "[ERROR] azd env set unexpectedly prompted for confirmation. Ensure --no-prompt is working correctly."
+} else {
+    Write-Log "azd env set AZURE_NETWORK_ISOLATION completed successfully."
+}
+
+$niConfirm = azd env get-value "AZURE_NETWORK_ISOLATION" --no-prompt 2>&1
 Write-Log "Confirmed AZURE_NETWORK_ISOLATION value: $niConfirm"
+
 
 
 # 7) Replace Key Vault name dynamically
