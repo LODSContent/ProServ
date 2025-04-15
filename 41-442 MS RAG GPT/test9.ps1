@@ -90,20 +90,27 @@ Write-Host "Initializing GPT-RAG template..."
 azd init -t azure/gpt-rag -b workshop -e dev-lab --no-prompt | Tee-Object -FilePath $logFile -Append
 Write-Log "azd init complete."
 
-# 6.1) Set AZURE_NETWORK_ISOLATION = true
-Write-Log "Setting AZURE_NETWORK_ISOLATION to true..."
-$niResult = azd env set "AZURE_NETWORK_ISOLATION" "true" --no-prompt 2>&1 | Tee-Object -FilePath $logFile -Append
 
-if ($niResult -match 'Usage\s+azd env') {
-    Write-Log "[ERROR] azd env set failed – command returned help text. Possible quoting issue or azd version mismatch."
-} elseif ($niResult -match '\[Y/n\]') {
-    Write-Log "[ERROR] azd env set unexpectedly prompted for confirmation. Ensure --no-prompt is working correctly."
+# 6.1) Force-set AZURE_NETWORK_ISOLATION in .env to avoid prompt
+Write-Log "Setting AZURE_NETWORK_ISOLATION to true (via direct .env edit)..."
+$envDir = "$HOME\.azure\dev-lab"
+$envFile = Join-Path $envDir ".env"
+
+if (-not (Test-Path $envFile)) {
+    Write-Log "[ERROR] Environment .env file not found at $envFile"
 } else {
-    Write-Log "azd env set AZURE_NETWORK_ISOLATION completed successfully."
+    # Add or update the line in .env file
+    $envContent = Get-Content $envFile
+    if ($envContent -match '^AZURE_NETWORK_ISOLATION=') {
+        $envContent = $envContent -replace '^AZURE_NETWORK_ISOLATION=.*', 'AZURE_NETWORK_ISOLATION=true'
+    } else {
+        $envContent += 'AZURE_NETWORK_ISOLATION=true'
+    }
+    $envContent | Set-Content $envFile
+    Write-Log "AZURE_NETWORK_ISOLATION set to true in .env"
 }
 
-$niConfirm = azd env get-value "AZURE_NETWORK_ISOLATION" --no-prompt 2>&1
-Write-Log "Confirmed AZURE_NETWORK_ISOLATION value: $niConfirm"
+
 
 
 
