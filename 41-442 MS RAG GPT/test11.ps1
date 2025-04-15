@@ -1,5 +1,6 @@
 #
-# gpt-rag.ps1 (Latest version with dynamic Key Vault, location support, and detailed NI logging)
+# gpt-rag.ps1 (Latest version with dynamic Key Vault & Cognitive Services names,
+#           location support, detailed NI logging, and core Bicep file validation)
 #
 
 $logFile = "C:\labfiles\progress.log"
@@ -75,7 +76,6 @@ Write-Log "Logging in with service principal."
 azd auth login --client-id $clientId --client-secret $clientSecret --tenant-id $tenantId | Tee-Object -FilePath $logFile -Append
 az login --service-principal --username $clientId --password $clientSecret --tenant $tenantId | Tee-Object -FilePath $logFile -Append
 
-
 # 5) Clone GPT-RAG repo and prepare deployment path
 $deployPath = "$HOME\gpt-rag-deploy"
 Write-Log "Cloning GPT-RAG repo into $deployPath"
@@ -112,7 +112,6 @@ if (Test-Path $preDeployPath) {
 
 # 6.2) Set AZURE_NETWORK_ISOLATION manually in .env to avoid prompt
 Write-Log "Setting AZURE_NETWORK_ISOLATION to true in .env..."
-
 $envDir = Join-Path $deployPath ".azure\dev-lab"
 $envFile = Join-Path $envDir ".env"
 
@@ -145,6 +144,47 @@ foreach ($file in $kvFiles) {
 azd env set AZURE_KEY_VAULT_NAME $newKvName | Tee-Object -FilePath $logFile -Append
 Write-Log "Set AZURE_KEY_VAULT_NAME to $newKvName"
 
+# 7.1) Replace Cognitive Services names dynamically to avoid restoring soft-deleted resources
+$csFiles = Get-ChildItem -Recurse -Include *.bicep,*.json -ErrorAction SilentlyContinue
+foreach ($file in $csFiles) {
+    $content = Get-Content $file.FullName -Raw
+    $newContent = $content -replace 'oai0-[a-z0-9]+', "oai0-$labInstanceId"
+    $newContent = $newContent -replace 'ai0-[a-z0-9]+', "ai0-$labInstanceId"
+    if ($content -ne $newContent) {
+        Set-Content $file.FullName $newContent
+        Write-Log "Updated Cognitive Services names in: $($file.FullName)"
+    }
+}
+
+# 7.2) Validate that all Bicep files are present in the "infra/core" folder
+$expectedCount = 30
+$coreFolder = Join-Path $deployPath "infra\core"
+if (Test-Path $coreFolder) {
+    $maxRetries = 5
+    $retryCount = 0
+    do {
+        $coreBicepFiles = Get-ChildItem -Path $coreFolder -Filter *.bicep -Recurse
+        if ($coreBicepFiles.Count -ge $expectedCount) {
+            break
+        }
+        Write-Log "Found only $($coreBicepFiles.Count) Bicep file(s) in 'infra/core'. Expected $expectedCount. Retrying in 10 seconds..."
+        Start-Sleep -Seconds 10
+        $retryCount++
+    } while ($retryCount -lt $maxRetries)
+    
+    if ($coreBicepFiles.Count -lt $expectedCount) {
+        Write-Log "[ERROR] Expected $expectedCount Bicep files in 'infra/core', but only found $($coreBicepFiles.Count). Aborting."
+        exit 1
+    } else {
+        Write-Log "Found $($coreBicepFiles.Count) Bicep file(s) in 'infra/core' folder."
+        foreach ($file in $coreBicepFiles) {
+             Write-Log "Bicep file: $($file.FullName)"
+        }
+    }
+} else {
+    Write-Log "[WARNING] 'infra/core' folder not found at $coreFolder"
+}
+
 # 8) Configure environment
 Write-Log "Setting azd environment variables..."
 azd env set AZURE_SUBSCRIPTION_ID $subscriptionId | Tee-Object -FilePath $logFile -Append
@@ -155,15 +195,16 @@ Write-Log "Environment configured."
 # 9) Preview deployment with 'what-if'
 Write-Log "Running ARM what-if deployment preview..."
 try {
-    az deployment sub what-if `
+    $whatIfOutput = az deployment sub what-if `
         --location $location `
         --template-file ./infra/main.bicep `
         --parameters ./infra/main.parameters.json `
         --parameters environment=dev-lab `
-        --only-show-errors `
-        --no-prompt `
-    | Tee-Object -FilePath $logFile -Append
-    Write-Log "What-if preview complete."
+        --no-prompt | Out-String
+    Write-Log "What-if preview complete. Output:"
+    Write-Log $whatIfOutput
+    Write-Host "What-if preview output:"
+    Write-Host $whatIfOutput
 } catch {
     Write-Log "[WARNING] ARM what-if preview failed: $($_.Exception.Message)"
 }
