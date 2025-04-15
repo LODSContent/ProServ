@@ -88,25 +88,58 @@ $env:AZD_NON_INTERACTIVE = "true"
 $env:AZD_DEFAULT_YES = "true"
 Write-Host "Initializing GPT-RAG template..."
 azd init -t azure/gpt-rag -b workshop -e dev-lab --no-prompt | Tee-Object -FilePath $logFile -Append
+$preprovisionPath = Join-Path $deployPath "infra\scripts\preprovision.ps1"
+if (Test-Path $preprovisionPath) {
+    Write-Log "Removing preprovision.ps1 to avoid interactive prompt..."
+    Remove-Item $preprovisionPath -Force
+}
+
+Write-Log "."
 Write-Log "azd init complete."
 
 
-# 6.1) Force-set AZURE_NETWORK_ISOLATION in .env to avoid prompt
-Write-Log "Setting AZURE_NETWORK_ISOLATION to true (via direct .env edit)..."
+# 6.1) Remove preprovision.ps1 and preDeploy.ps1 to prevent interactive prompts
+$infraScriptPath = Join-Path $deployPath "infra\scripts"
+
+$preprovisionPath = Join-Path $infraScriptPath "preprovision.ps1"
+if (Test-Path $preprovisionPath) {
+    Write-Log "Removing preprovision.ps1 to avoid [Y/n] prompt during provisioning."
+    Remove-Item $preprovisionPath -Force
+} else {
+    Write-Log "preprovision.ps1 not found — skipping."
+}
+
+$preDeployPath = Join-Path $infraScriptPath "preDeploy.ps1"
+if (Test-Path $preDeployPath) {
+    Write-Log "Removing preDeploy.ps1 to avoid [Y/n] prompt during deployment."
+    Remove-Item $preDeployPath -Force
+} else {
+    Write-Log "preDeploy.ps1 not found — skipping."
+}
+
+# 6.2) Set AZURE_NETWORK_ISOLATION manually in .env to avoid prompt
+Write-Log "Setting AZURE_NETWORK_ISOLATION to true in .env..."
+
 $envDir = "$HOME\.azure\dev-lab"
 $envFile = Join-Path $envDir ".env"
 
 if (-not (Test-Path $envFile)) {
     Write-Log "[ERROR] Environment .env file not found at $envFile"
 } else {
-    # Add or update the line in .env file
     $envContent = Get-Content $envFile
-    if ($envContent -match '^AZURE_NETWORK_ISOLATION=') {
-        $envContent = $envContent -replace '^AZURE_NETWORK_ISOLATION=.*', 'AZURE_NETWORK_ISOLATION=true'
-    } else {
-        $envContent += 'AZURE_NETWORK_ISOLATION=true'
+
+    # Helper to set or update a key in .env
+    function Set-Or-Update-Key($lines, $key, $value) {
+        if ($lines -match "^$key=") {
+            return $lines -replace "^$key=.*", "$key=$value"
+        } else {
+            return $lines + "$key=$value"
+        }
     }
+
+    $envContent = Set-Or-Update-Key $envContent "AZURE_NETWORK_ISOLATION" "true"
     $envContent | Set-Content $envFile
+
     Write-Log "AZURE_NETWORK_ISOLATION set to true in .env"
 }
 
