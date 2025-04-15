@@ -113,7 +113,7 @@ if (Test-Path $preDeployPath) {
 # 6.2) Set AZURE_NETWORK_ISOLATION manually in .env to avoid prompt
 Write-Log "Setting AZURE_NETWORK_ISOLATION to true in .env..."
 
-$envDir = "$HOME\.azure\dev-lab"
+$envDir = Join-Path $deployPath ".azure\dev-lab"
 $envFile = Join-Path $envDir ".env"
 
 if (-not (Test-Path $envFile)) {
