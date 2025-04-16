@@ -79,10 +79,11 @@ az login --service-principal --username $clientId --password $clientSecret --ten
 
 # 5) Clone GPT-RAG repo and prepare deployment path
 $deployPath = "$HOME\gpt-rag-deploy"
-Write-Log "Cloning GPT-RAG repo into $deployPath"
+Write-Log "Cloning GPT-RAG repo (agentic branch) into $deployPath"
 Remove-Item -Recurse -Force $deployPath -ErrorAction SilentlyContinue | Out-Null
-git clone https://github.com/Azure/gpt-rag.git $deployPath | Tee-Object -FilePath $logFile -Append
+git clone -b agentic https://github.com/Azure/gpt-rag.git $deployPath | Tee-Object -FilePath $logFile -Append
 Set-Location $deployPath
+
 
 # 6) Init GPT-RAG environment from local repo
 $env:AZD_SKIP_UPDATE_CHECK = "true"
