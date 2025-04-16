@@ -84,21 +84,30 @@ Remove-Item -Recurse -Force $deployPath -ErrorAction SilentlyContinue | Out-Null
 git clone -b agentic https://github.com/Azure/gpt-rag.git $deployPath | Tee-Object -FilePath $logFile -Append
 Set-Location $deployPath
 
-# 6.0) Remove preprovision and predeploy hooks from azure.yaml if present
+# 6.0) Clean up any hook lines (preprovision/predeploy) from azure.yaml
 $yamlPath = Join-Path $deployPath "azure.yaml"
 if (Test-Path $yamlPath) {
-    Write-Log "Stripping preprovision and predeploy hooks from azure.yaml..."
+    Write-Log "Cleaning preprovision and predeploy references from azure.yaml..."
 
     $yamlContent = Get-Content $yamlPath -Raw
 
-    # Remove the entire hooks block if present
+    # Remove standalone hook block if present
     $yamlContent = $yamlContent -replace "(?ms)^hooks:.*?(?=^[^\s]|$)", ""
 
+    # Remove any lingering hook lines in service blocks
+    $yamlContent = $yamlContent -replace '(?m)^\s*preprovision:.*$', ''
+    $yamlContent = $yamlContent -replace '(?m)^\s*predeploy:.*$', ''
+
+    # Remove any host: '' lines that would now be invalid
+    $yamlContent = $yamlContent -replace "(?m)^\s*host:\s*''\s*$", ''
+
     Set-Content -Path $yamlPath -Value $yamlContent -NoNewline
-    Write-Log "Hooks removed from azure.yaml"
+    Write-Log "Sanitized azure.yaml successfully."
 } else {
     Write-Log "azure.yaml not found at $yamlPath"
 }
+
+
 
 
 
