@@ -179,6 +179,32 @@ while (-not $resourceGroup -and $attempts -lt 5) {
 }
 azd env set AZURE_RESOURCE_GROUP $resourceGroup | Tee-Object -FilePath $logFile -Append
 
+
+
+# 9.5) Purge soft-deleted Cognitive Services before provision
+Write-Log "Checking for soft-deleted Cognitive Services instances to purge..."
+$purgeCandidates = @("oai0-$labInstanceId", "ai0-$labInstanceId")
+
+foreach ($baseName in $purgeCandidates) {
+    $deletedResources = az cognitiveservices account list-deleted `
+        --location $location `
+        --query "[?contains(name, '$baseName')]" -o json | ConvertFrom-Json
+
+    foreach ($deleted in $deletedResources) {
+        $deletedName = $deleted.name
+        $deletedLocation = $deleted.properties.location
+        $deletedResourceGroup = $deleted.properties.resourceGroup
+
+        Write-Log "Purging soft-deleted Cognitive Services resource: $deletedName"
+        az cognitiveservices account purge `
+            --location $deletedLocation `
+            --name $deletedName `
+            --resource-group $deletedResourceGroup | Tee-Object -FilePath $logFile -Append
+    }
+}
+
+
+
 # 10.5) Wait on OpenAI
 $openAiAccountName = az resource list --resource-group $resourceGroup --resource-type "Microsoft.CognitiveServices/accounts" --query "[?contains(name, 'oai0')].name" -o tsv
 $attempt = 0
