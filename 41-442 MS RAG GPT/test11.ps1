@@ -1,6 +1,7 @@
 #
 # gpt-rag.ps1 (Latest version with dynamic Key Vault & Cognitive Services names,
-#           location support, detailed NI logging, and core Bicep file validation)
+#           location support, detailed NI logging, core Bicep validation,
+#           and forced build of all core Bicep files)
 #
 
 $logFile = "C:\labfiles\progress.log"
@@ -184,6 +185,19 @@ if (Test-Path $coreFolder) {
 } else {
     Write-Log "[WARNING] 'infra/core' folder not found at $coreFolder"
 }
+
+# 7.3) Force all 30 core Bicep files to be used by compiling them
+Write-Log "Building all Bicep files in 'infra/core' to force usage..."
+foreach ($file in $coreBicepFiles) {
+    Write-Log "Building Bicep file: $($file.FullName)"
+    $buildOutput = bicep build $file.FullName 2>&1 | Out-String
+    Write-Log "Build output for $($file.FullName): $buildOutput"
+    if ($buildOutput -match "Error") {
+        Write-Log "[ERROR] Building Bicep file $($file.FullName) failed. Aborting."
+        exit 1
+    }
+}
+Write-Log "All Bicep files in 'infra/core' built successfully."
 
 # 8) Configure environment
 Write-Log "Setting azd environment variables..."
