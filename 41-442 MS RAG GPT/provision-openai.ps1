@@ -1,12 +1,12 @@
 param (
-    [string]$subscriptionId,
-    [string]$resourceGroup,
-    [string]$location,
-    [string]$labInstanceId,
-    [string]$clientId,
-    [string]$clientSecret,
-    [string]$tenantId,
-    [string]$logFile = "C:\labfiles\progress.log"
+    [string] $subscriptionId,
+    [string] $resourceGroup,
+    [string] $location,
+    [string] $labInstanceId,
+    [string] $clientId,
+    [string] $clientSecret,
+    [string] $tenantId,
+    [string] $logFile = "C:\labfiles\progress.log"
 )
 
 function Write-Log {
@@ -17,107 +17,81 @@ function Write-Log {
 
 Write-Log "=== Starting fallback OpenAI provisioning script ==="
 
-$openAiName = "oai0-$labInstanceId"
-$aiName     = "ai0-$labInstanceId"
+# Login with SP (redundant safety)
+az login --service-principal `
+    --username $clientId `
+    --password $clientSecret `
+    --tenant $tenantId | Out-Null
 
-# 1) Purge soft-deleted names if present
-$purgeList = @($openAiName, $aiName)
-foreach ($name in $purgeList) {
-    try {
-        $deletedResources = az cognitiveservices account list-deleted `
-            --location $location `
-            --query "[?name=='$name']" -o json | ConvertFrom-Json
-        foreach ($res in $deletedResources) {
-            Write-Log "Purging soft-deleted resource: $($res.name)"
-            az cognitiveservices account purge `
-                --location $res.properties.location `
-                --name $res.name `
-                --resource-group $res.properties.resourceGroup | Out-Null
-        }
-    } catch {
-        Write-Log "[WARNING] No soft-deleted resource found for $name or failed to purge."
+az account set --subscription $subscriptionId | Out-Null
+
+# Step 1: Purge soft-deleted Azure OpenAI
+$openAiName = "oai0-$labInstanceId"
+$deletedOpenAIs = az cognitiveservices account list-deleted `
+    --location $location `
+    --query "[?name=='$openAiName']" -o json | ConvertFrom-Json
+
+if ($deletedOpenAIs.Count -gt 0) {
+    foreach ($deleted in $deletedOpenAIs) {
+        Write-Log "Purging soft-deleted Azure OpenAI resource: $($deleted.name)"
+        az cognitiveservices account purge `
+            --location $deleted.location `
+            --name $deleted.name | Out-Null
+        Write-Log "Purged Azure OpenAI: $($deleted.name)"
     }
 }
 
-# 2) Create OpenAI resource
-try {
-    Write-Log "Creating Azure OpenAI resource: $openAiName"
+# Step 2: Purge soft-deleted Key Vault bastionkv-*
+$bastionKvName = "bastionkv-$($labInstanceId.ToLower())"
+$deletedKvs = az keyvault list-deleted `
+    --query "[?name=='$bastionKvName']" -o json | ConvertFrom-Json
 
-    az cognitiveservices account create `
-        --name $openAiName `
-        --resource-group $resourceGroup `
-        --kind OpenAI `
-        --sku S0 `
-        --location $location `
-        --yes `
-        --assign-identity `
-        --custom-domain "" `
-        --api-properties "{}" `
-        --tags "lab=$labInstanceId" `
-        --properties "{}" `
-        --public-network-access Enabled `
-        --only-show-errors | Out-Null
-
-    Write-Log "Azure OpenAI resource created: $openAiName"
-} catch {
-    Write-Log "[ERROR] Failed to create Azure OpenAI resource: $_"
-    return
+if ($deletedKvs.Count -gt 0) {
+    foreach ($deleted in $deletedKvs) {
+        Write-Log "Purging soft-deleted Key Vault: $($deleted.name)"
+        az keyvault purge --name $deleted.name | Out-Null
+        Write-Log "Purged Key Vault: $($deleted.name)"
+    }
 }
 
-# 3) Wait for provisioning state = Succeeded
+# Step 3: Create OpenAI resource
+Write-Log "Creating Azure OpenAI resource: $openAiName"
+
+az cognitiveservices account create `
+    --name $openAiName `
+    --resource-group $resourceGroup `
+    --location $location `
+    --kind OpenAI `
+    --sku S0 `
+    --custom-domain $null `
+    --yes `
+    --assign-identity `
+    --api-properties "enableManagedIdentity=true" `
+    --properties '{}' `
+    --tags "env=lab" `
+    --output none
+
+Write-Log "Azure OpenAI resource created: $openAiName"
+
+# Step 4: Poll until it reaches Succeeded
 $maxAttempts = 15
-$attempt = 0
-$state = ""
-do {
+for ($i = 1; $i -le $maxAttempts; $i++) {
+    Start-Sleep -Seconds 12
     $state = az cognitiveservices account show `
         --name $openAiName `
         --resource-group $resourceGroup `
         --query "provisioningState" -o tsv
-    Write-Log "Provisioning state of ${openAiName}: $state (Attempt $($attempt + 1))"
-    Start-Sleep -Seconds 10
-    $attempt++
-} while ($state -ne "Succeeded" -and $attempt -lt $maxAttempts)
+
+    Write-Log "Provisioning state of $openAiName: $state (Attempt $i)"
+
+    if ($state -eq "Succeeded") {
+        Write-Log "Azure OpenAI resource reached 'Succeeded' state."
+        break
+    }
+}
 
 if ($state -ne "Succeeded") {
     Write-Log "[ERROR] Azure OpenAI resource $openAiName failed to reach 'Succeeded' state. Current state: $state"
-    return
 }
 
-# 4) Deploy models if not already present
-Write-Log "Checking model deployments for $openAiName..."
-$existingDeployments = az cognitiveservices account deployment list `
-    --name $openAiName `
-    --resource-group $resourceGroup `
-    --query "[].name" -o tsv
-
-if ($existingDeployments -notmatch "chat") {
-    Write-Log "Deploying GPT-35 Turbo model..."
-    az cognitiveservices account deployment create `
-        --name $openAiName `
-        --resource-group $resourceGroup `
-        --deployment-name "chat" `
-        --model-format OpenAI `
-        --model-name "gpt-35-turbo" `
-        --model-version "0613" `
-        --sku-name "standard" `
-        --scale-type "Standard" | Out-Null
-} else {
-    Write-Log "Chat model already deployed."
-}
-
-if ($existingDeployments -notmatch "text-embedding") {
-    Write-Log "Deploying Ada Embedding model..."
-    az cognitiveservices account deployment create `
-        --name $openAiName `
-        --resource-group $resourceGroup `
-        --deployment-name "text-embedding" `
-        --model-format OpenAI `
-        --model-name "text-embedding-ada-002" `
-        --model-version "2" `
-        --sku-name "standard" `
-        --scale-type "Standard" | Out-Null
-} else {
-    Write-Log "Embedding model already deployed."
-}
-
-Write-Log "=== Fallback OpenAI provisioning script complete ==="
+Write-Log "Fallback OpenAI provision script executed successfully."
