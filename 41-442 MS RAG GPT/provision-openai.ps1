@@ -1,72 +1,97 @@
 param (
+    [string]$subscriptionId,
     [string]$resourceGroup,
     [string]$location,
     [string]$labInstanceId,
-    [string]$subscriptionId
+    [string]$clientId,
+    [string]$clientSecret,
+    [string]$tenantId,
+    [string]$logFile = "C:\labfiles\progress.log"
 )
 
-$logFile = "C:\labfiles\progress.log"
-function Write-Log($msg) {
+function Write-Log {
+    param ([string]$msg)
     $stamp = (Get-Date).ToString("yyyy-MM-dd HHmmss")
-    Add-Content $logFile "[OPENAI] $stamp $msg"
+    Add-Content $logFile "[INFO] $stamp $msg"
 }
 
-Write-Log "Started OpenAI provisioning."
+Write-Log "=== Starting fallback OpenAI provisioning script ==="
 
-# Name format
 $openAiName = "oai0-$labInstanceId"
+$aiName     = "ai0-$labInstanceId"
 
-# Check if it already exists
-$existing = az cognitiveservices account show `
-    --name $openAiName `
-    --resource-group $resourceGroup `
-    --query "name" -o tsv 2>$null
+# 1) Purge soft-deleted names if present
+$purgeList = @($openAiName, $aiName)
+foreach ($name in $purgeList) {
+    try {
+        $deletedResources = az cognitiveservices account list-deleted `
+            --location $location `
+            --query "[?name=='$name']" -o json | ConvertFrom-Json
+        foreach ($res in $deletedResources) {
+            Write-Log "Purging soft-deleted resource: $($res.name)"
+            az cognitiveservices account purge `
+                --location $res.properties.location `
+                --name $res.name `
+                --resource-group $res.properties.resourceGroup | Out-Null
+        }
+    } catch {
+        Write-Log "[WARNING] No soft-deleted resource found for $name or failed to purge."
+    }
+}
 
-if (-not $existing) {
+# 2) Create OpenAI resource
+try {
     Write-Log "Creating Azure OpenAI resource: $openAiName"
 
     az cognitiveservices account create `
         --name $openAiName `
         --resource-group $resourceGroup `
-        --location $location `
         --kind OpenAI `
         --sku S0 `
+        --location $location `
         --yes `
-        --custom-domain $openAiName `
-        --properties "{'DisableLocalAuth':'false'}" `
-        --capabilities EnableAzureOpenAI `
-        --query "id" -o tsv | Out-Null
+        --assign-identity `
+        --custom-domain "" `
+        --api-properties "{}" `
+        --tags "lab=$labInstanceId" `
+        --properties "{}" `
+        --public-network-access Enabled `
+        --only-show-errors | Out-Null
 
-    Write-Log "Creation requested. Waiting for provisioning to complete..."
-} else {
-    Write-Log "Azure OpenAI resource already exists: $openAiName"
+    Write-Log "Azure OpenAI resource created: $openAiName"
+} catch {
+    Write-Log "[ERROR] Failed to create Azure OpenAI resource: $_"
+    return
 }
 
-# Wait for provisioning state
-$attempts = 0
+# 3) Wait for provisioning state = Succeeded
+$maxAttempts = 15
+$attempt = 0
+$state = ""
 do {
     $state = az cognitiveservices account show `
         --name $openAiName `
         --resource-group $resourceGroup `
         --query "provisioningState" -o tsv
-    Write-Log "Provisioning state: $state"
+    Write-Log "Provisioning state of $openAiName: $state (Attempt $($attempt + 1)/$maxAttempts)"
     Start-Sleep -Seconds 10
-    $attempts++
-} while ($state -ne "Succeeded" -and $attempts -lt 15)
+    $attempt++
+} while ($state -ne "Succeeded" -and $attempt -lt $maxAttempts)
 
 if ($state -ne "Succeeded") {
-    Write-Log "[ERROR] OpenAI resource did not reach 'Succeeded'. Aborting model deployment."
-    exit 1
+    Write-Log "[ERROR] Azure OpenAI resource $openAiName failed to reach 'Succeeded' state. Current state: $state"
+    return
 }
 
-# Deploy models if needed
-$deployments = az cognitiveservices account deployment list `
+# 4) Deploy models if not already present
+Write-Log "Checking model deployments for $openAiName..."
+$existingDeployments = az cognitiveservices account deployment list `
     --name $openAiName `
     --resource-group $resourceGroup `
     --query "[].name" -o tsv
 
-if ($deployments -notmatch "chat") {
-    Write-Log "Deploying chat model..."
+if ($existingDeployments -notmatch "chat") {
+    Write-Log "Deploying GPT-35 Turbo model..."
     az cognitiveservices account deployment create `
         --name $openAiName `
         --resource-group $resourceGroup `
@@ -76,10 +101,12 @@ if ($deployments -notmatch "chat") {
         --model-version "0613" `
         --sku-name "standard" `
         --scale-type "Standard" | Out-Null
+} else {
+    Write-Log "Chat model already deployed."
 }
 
-if ($deployments -notmatch "text-embedding") {
-    Write-Log "Deploying text-embedding model..."
+if ($existingDeployments -notmatch "text-embedding") {
+    Write-Log "Deploying Ada Embedding model..."
     az cognitiveservices account deployment create `
         --name $openAiName `
         --resource-group $resourceGroup `
@@ -89,33 +116,8 @@ if ($deployments -notmatch "text-embedding") {
         --model-version "2" `
         --sku-name "standard" `
         --scale-type "Standard" | Out-Null
-}
-
-# Update .env
-$envFile = "$HOME\gpt-rag-deploy\.azure\dev-lab\.env"
-$endpoint = az cognitiveservices account show `
-    --name $openAiName `
-    --resource-group $resourceGroup `
-    --query "properties.endpoint" -o tsv
-
-Write-Log "Updating .env with Azure OpenAI info."
-
-function Set-Or-Update-Key($lines, $key, $value) {
-    if ($lines -match "^$key=") {
-        return $lines -replace "^$key=.*", "$key=$value"
-    } else {
-        return $lines + "`n$key=$value"
-    }
-}
-
-if (Test-Path $envFile) {
-    $lines = Get-Content $envFile
-    $lines = Set-Or-Update-Key $lines "AZURE_OPENAI_NAME" $openAiName
-    $lines = Set-Or-Update-Key $lines "AZURE_OPENAI_ENDPOINT" $endpoint
-    $lines | Set-Content $envFile
-    Write-Log ".env updated with AZURE_OPENAI_NAME and AZURE_OPENAI_ENDPOINT"
 } else {
-    Write-Log "[WARNING] .env file not found. Skipping update."
+    Write-Log "Embedding model already deployed."
 }
 
-Write-Log "Azure OpenAI provisioning complete."
+Write-Log "=== Fallback OpenAI provisioning script complete ==="
