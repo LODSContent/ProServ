@@ -223,17 +223,30 @@ if (Test-Path $coreFolder) {
 }
 
 # 7.3) Force all 30 core Bicep files to be used by compiling them
+
+
+
+# 7.3) Force all 30 core Bicep files to be used by compiling them
 Write-Log "Building all Bicep files in 'infra/core' to force usage..."
 foreach ($file in $coreBicepFiles) {
     Write-Log "Building Bicep file: $($file.FullName)"
+    $bicepErrorLog = "C:\labfiles\bicep_errors.log"
     $buildOutput = bicep build $file.FullName 2>&1 | Out-String
     Write-Log "Build output for $($file.FullName): $buildOutput"
+    Add-Content -Path $bicepErrorLog -Value "`n--- Build Output for $($file.FullName) ---`n$buildOutput"
+
+if ($buildOutput -match "Error") {
+    Write-Log "[ERROR] Building Bicep file $($file.FullName) failed. Aborting."
+    exit 1
+}
     if ($buildOutput -match "Error") {
         Write-Log "[ERROR] Building Bicep file $($file.FullName) failed. Aborting."
         exit 1
     }
 }
 Write-Log "All Bicep files in 'infra/core' built successfully."
+
+
 
 # 8) Configure environment
 Write-Log "Setting azd environment variables..."
@@ -247,6 +260,81 @@ Write-Log "Provisioning environment..."
 Write-Host "Starting provisioning... this may take several minutes."
 azd provision --environment dev-lab 2>&1 | Tee-Object -FilePath $logFile -Append
 Write-Log "azd provision complete."
+
+# 10.5) Wait for Azure OpenAI resource to reach terminal state before continuing
+Write-Log "Waiting for Azure OpenAI resource to reach terminal provisioning state..."
+
+$maxAttempts = 15
+$attempt = 0
+$provisioningState = ""
+
+$openAiAccountName = az resource list --resource-group $resourceGroup --resource-type "Microsoft.CognitiveServices/accounts" `
+    --query "[?contains(name, 'oai0')].name" -o tsv
+
+if (-not $openAiAccountName) {
+    Write-Log "[ERROR] Azure OpenAI account not found in resource group $resourceGroup"
+} else {
+    do {
+        $provisioningState = az cognitiveservices account show `
+            --name $openAiAccountName `
+            --resource-group $resourceGroup `
+            --query "provisioningState" -o tsv
+
+        Write-Log "OpenAI provisioning state: $provisioningState (Attempt $($attempt + 1)/$maxAttempts)"
+
+        if ($provisioningState -ne "Succeeded") {
+            Start-Sleep -Seconds 15
+        }
+
+        $attempt++
+    } while ($provisioningState -ne "Succeeded" -and $attempt -lt $maxAttempts)
+
+    if ($provisioningState -ne "Succeeded") {
+        Write-Log "[ERROR] Azure OpenAI resource failed to reach terminal state. Proceeding with caution."
+    } else {
+        Write-Log "Azure OpenAI resource reached 'Succeeded' state."
+    }
+
+    # 10.6) Retry model deployments (only if they don't already exist)
+Write-Log "Checking for existing model deployments..."
+
+$existingDeployments = az cognitiveservices account deployment list `
+    --name $openAiAccountName `
+    --resource-group $resourceGroup `
+    --query "[].name" -o tsv
+
+if ($existingDeployments -notmatch "chat") {
+    Write-Log "Chat model not found — deploying..."
+    az cognitiveservices account deployment create `
+      --name $openAiAccountName `
+      --resource-group $resourceGroup `
+      --deployment-name "chat" `
+      --model-format OpenAI `
+      --model-name "gpt-35-turbo" `
+      --model-version "0613" `
+      --sku-name "standard" `
+      --scale-type "Standard" 2>&1 | Tee-Object -FilePath $logFile -Append
+} else {
+    Write-Log "Chat model already deployed — skipping."
+}
+
+if ($existingDeployments -notmatch "text-embedding") {
+    Write-Log "Embedding model not found — deploying..."
+    az cognitiveservices account deployment create `
+      --name $openAiAccountName `
+      --resource-group $resourceGroup `
+      --deployment-name "text-embedding" `
+      --model-format OpenAI `
+      --model-name "text-embedding-ada-002" `
+      --model-version "2" `
+      --sku-name "standard" `
+      --scale-type "Standard" 2>&1 | Tee-Object -FilePath $logFile -Append
+} else {
+    Write-Log "Embedding model already deployed — skipping."
+}
+
+Write-Log "OpenAI model deployment verification complete."
+
 
 # 10) Discover resource group (with retry)
 Write-Log "Discovering resource group for AZURE_RESOURCE_GROUP..."
@@ -292,4 +380,6 @@ Write-Host "Your GPT solution is live at: https://$webAppUrl"
 Write-Log "Deployment complete. URL: https://$webAppUrl"
 
 Write-Host "Done."
-Write-Log "Script completed."
+$endTime = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+Write-Log "Script completed at $endTime"
+
