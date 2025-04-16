@@ -147,5 +147,164 @@ Write-Log "Starting azd provision..."
 azd provision --environment dev-lab 2>&1 | Tee-Object -FilePath $logFile -Append
 Write-Log "azd provision complete."
 
-# Continue with the rest (role assignments, function config, web app output...)
-# You can reinsert blocks 10–13 from the previous version below this line as needed.
+# 10) Discover RG
+$resourceGroup = $null
+$attempts = 0
+while (-not $resourceGroup -and $attempts -lt 5) {
+    $resourceGroup = az group list --query "[?contains(name, 'rg-dev-lab')].name" -o tsv
+    Start-Sleep -Seconds 5
+    $attempts++
+}
+azd env set AZURE_RESOURCE_GROUP $resourceGroup | Tee-Object -FilePath $logFile -Append
+Write-Log "Set AZURE_RESOURCE_GROUP to $resourceGroup"
+
+
+# 10.1) Attempt fallback OpenAI provisioning if not succeeded
+$openAiAccountName = az resource list --resource-group $resourceGroup --resource-type "Microsoft.CognitiveServices/accounts" `
+    --query "[?contains(name, 'oai0')].name" -o tsv
+
+$provisioningState = ""
+if ($openAiAccountName) {
+    $provisioningState = az cognitiveservices account show `
+        --name $openAiAccountName `
+        --resource-group $resourceGroup `
+        --query "provisioningState" -o tsv
+}
+
+if (-not $openAiAccountName -or $provisioningState -ne "Succeeded") {
+    try {
+        $fallbackScriptPath = "$env:TEMP\provision-openai.ps1"
+        Invoke-WebRequest `
+            -Uri "https://raw.githubusercontent.com/LODSContent/ProServ/refs/heads/main/41-442%20MS%20RAG%20GPT/provision-openai.ps1" `
+            -OutFile $fallbackScriptPath -UseBasicParsing
+
+        Write-Log "Downloaded fallback OpenAI provision script to $fallbackScriptPath"
+
+        & $fallbackScriptPath `
+            -subscriptionId $subscriptionId `
+            -resourceGroup $resourceGroup `
+            -location $location `
+            -labInstanceId $labInstanceId `
+            -clientId $clientId `
+            -clientSecret $clientSecret `
+            -tenantId $tenantId `
+            -logFile $logFile
+
+        Write-Log "Fallback OpenAI provision script executed successfully."
+    } catch {
+        Write-Log "[ERROR] Failed to run fallback OpenAI provisioning script. $_"
+    }
+} else {
+    Write-Log "Azure OpenAI resource provisioned successfully in main script."
+}
+
+
+
+
+# 10.2) Provision OpenAI separately
+Write-Log "Calling fallback script to provision Azure OpenAI..."
+$openAiScript = "$HOME\gpt-rag-deploy\scripts\provision-openai.ps1"
+if (Test-Path $openAiScript) {
+    & $openAiScript -resourceGroup $resourceGroup -location $location -labInstanceId $labInstanceId -subscriptionId $subscriptionId
+} else {
+    Write-Log "[ERROR] provision-openai.ps1 not found at $openAiScript"
+}
+
+
+
+
+# 10.5) Call separate OpenAI script
+$openAiScript = Join-Path $deployPath "scripts\provision-openai.ps1"
+if (Test-Path $openAiScript) {
+    Write-Log "Invoking external OpenAI provisioning script."
+    & $openAiScript -ResourceGroup $resourceGroup -Location $location -LabInstanceId $labInstanceId -SubscriptionId $subscriptionId | Tee-Object -FilePath $logFile -Append
+} else {
+    Write-Log "[WARNING] OpenAI provisioning script not found at $openAiScript"
+}
+
+
+# 11) Assign Storage Blob Data Contributor role
+Write-Log "Assigning Storage Blob Data Contributor role to SP..."
+
+$storageAccount = az resource list --resource-group $resourceGroup `
+    --resource-type "Microsoft.Storage/storageAccounts" `
+    --query "sort_by([?type=='Microsoft.Storage/storageAccounts'], &length(name))[0].name" -o tsv
+
+$objectId = az ad sp show --id $clientId --query id -o tsv
+
+az role assignment create `
+    --assignee-object-id $objectId `
+    --assignee-principal-type ServicePrincipal `
+    --role "Storage Blob Data Contributor" `
+    --scope "/subscriptions/$subscriptionId/resourceGroups/$resourceGroup/providers/Microsoft.Storage/storageAccounts/$storageAccount" | Out-Null
+
+Write-Log "Role assignment complete for Storage Blob Data Contributor."
+
+
+
+
+# 12) Update Function App settings and restart
+Write-Log "Updating Function App settings..."
+
+$ingestionFunc = az resource list --resource-group $resourceGroup `
+    --resource-type "Microsoft.Web/sites" `
+    --query "[?contains(name, 'inges')].name" -o tsv
+
+$orchestratorFunc = az resource list --resource-group $resourceGroup `
+    --resource-type "Microsoft.Web/sites" `
+    --query "[?contains(name, 'orch')].name" -o tsv
+
+if ($ingestionFunc) {
+    az functionapp config appsettings set `
+        --name $ingestionFunc `
+        --resource-group $resourceGroup `
+        --settings MULTIMODAL=true | Out-Null
+
+    az functionapp restart `
+        --name $ingestionFunc `
+        --resource-group $resourceGroup | Out-Null
+
+    Write-Log "Ingestion function app updated and restarted."
+} else {
+    Write-Log "[WARNING] Ingestion Function App not found."
+}
+
+if ($orchestratorFunc) {
+    az functionapp config appsettings set `
+        --name $orchestratorFunc `
+        --resource-group $resourceGroup `
+        --settings AUTOGEN_ORCHESTRATION_STRATEGY=multimodal_rag | Out-Null
+
+    az functionapp restart `
+        --name $orchestratorFunc `
+        --resource-group $resourceGroup | Out-Null
+
+    Write-Log "Orchestrator function app updated and restarted."
+} else {
+    Write-Log "[WARNING] Orchestrator Function App not found."
+}
+
+
+# 13) Output Web App URL
+Write-Log "Retrieving deployed Web App URL..."
+
+$webAppName = az resource list --resource-group $resourceGroup `
+    --resource-type "Microsoft.Web/sites" `
+    --query "[?contains(name, 'webgpt')].name" -o tsv
+
+if ($webAppName) {
+    $webAppUrl = az webapp show `
+        --name $webAppName `
+        --resource-group $resourceGroup `
+        --query "defaultHostName" -o tsv
+
+    Write-Host "Your GPT solution is live at: https://$webAppUrl"
+    Write-Log "Deployment complete. URL: https://$webAppUrl"
+} else {
+    Write-Log "[WARNING] Web App not found. Cannot determine deployment URL."
+    Write-Host "Deployment completed, but Web App URL could not be retrieved."
+}
+
+$endTime = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+Write-Host "Done."
+Write-Log "Script completed at $endTime"
