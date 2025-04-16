@@ -125,7 +125,8 @@ if (-not (Test-Path $envFile)) {
         if ($lines -match "^$key=") {
             return $lines -replace "^$key=.*", "$key=$value"
         } else {
-            return $lines + "$key=$value"
+            # Append on a new line
+            return $lines + "`n" + "$key=$value"
         }
     }
 
