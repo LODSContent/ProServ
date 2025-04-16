@@ -84,6 +84,23 @@ Remove-Item -Recurse -Force $deployPath -ErrorAction SilentlyContinue | Out-Null
 git clone -b agentic https://github.com/Azure/gpt-rag.git $deployPath | Tee-Object -FilePath $logFile -Append
 Set-Location $deployPath
 
+# 6.0) Remove preprovision and predeploy hooks from azure.yaml if present
+$yamlPath = Join-Path $deployPath "azure.yaml"
+if (Test-Path $yamlPath) {
+    Write-Log "Stripping preprovision and predeploy hooks from azure.yaml..."
+
+    $yamlContent = Get-Content $yamlPath -Raw
+
+    # Remove the entire hooks block if present
+    $yamlContent = $yamlContent -replace "(?ms)^hooks:.*?(?=^[^\s]|$)", ""
+
+    Set-Content -Path $yamlPath -Value $yamlContent -NoNewline
+    Write-Log "Hooks removed from azure.yaml"
+} else {
+    Write-Log "azure.yaml not found at $yamlPath"
+}
+
+
 
 # 6) Init GPT-RAG environment from local repo
 $env:AZD_SKIP_UPDATE_CHECK = "true"
