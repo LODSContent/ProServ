@@ -1,7 +1,7 @@
 #
 # gpt-rag.ps1 (Latest version with dynamic Key Vault & Cognitive Services names,
-#           location support, detailed NI logging, core Bicep validation,
-#           and forced build of all core Bicep files)
+#           location support, detailed NI logging, core Bicep validation and forced build,
+#           and no what-if deployment preview)
 #
 
 $logFile = "C:\labfiles\progress.log"
@@ -125,7 +125,7 @@ if (-not (Test-Path $envFile)) {
         if ($lines -match "^$key=") {
             return $lines -replace "^$key=.*", "$key=$value"
         } else {
-            # Append on a new line
+            # Append on a new line so that the key is clearly separated
             return $lines + "`n" + "$key=$value"
         }
     }
@@ -147,14 +147,15 @@ azd env set AZURE_KEY_VAULT_NAME $newKvName | Tee-Object -FilePath $logFile -App
 Write-Log "Set AZURE_KEY_VAULT_NAME to $newKvName"
 
 # 7.1) Replace Cognitive Services names dynamically to avoid restoring soft-deleted resources
+$uniqueSuffix = (Get-Date -Format "yyyyMMddHHmmss")
 $csFiles = Get-ChildItem -Recurse -Include *.bicep,*.json -ErrorAction SilentlyContinue
 foreach ($file in $csFiles) {
     $content = Get-Content $file.FullName -Raw
-    $newContent = $content -replace 'oai0-[a-z0-9]+', "oai0-$labInstanceId"
-    $newContent = $newContent -replace 'ai0-[a-z0-9]+', "ai0-$labInstanceId"
+    $newContent = $content -replace 'oai0-[a-z0-9]+', "oai0-$labInstanceId-$uniqueSuffix"
+    $newContent = $newContent -replace 'ai0-[a-z0-9]+', "ai0-$labInstanceId-$uniqueSuffix"
     if ($content -ne $newContent) {
         Set-Content $file.FullName $newContent
-        Write-Log "Updated Cognitive Services names in: $($file.FullName)"
+        Write-Log "Updated Cognitive Services names in: $($file.FullName) to include unique suffix $uniqueSuffix"
     }
 }
 
@@ -207,30 +208,13 @@ azd env set AZURE_LOCATION $location | Tee-Object -FilePath $logFile -Append
 az account set --subscription $subscriptionId | Tee-Object -FilePath $logFile -Append
 Write-Log "Environment configured."
 
-# 9) Preview deployment with 'what-if'
-Write-Log "Running ARM what-if deployment preview..."
-try {
-    $whatIfOutput = az deployment sub what-if `
-        --location $location `
-        --template-file ./infra/main.bicep `
-        --parameters ./infra/main.parameters.json `
-        --parameters environment=dev-lab `
-        --no-prompt | Out-String
-    Write-Log "What-if preview complete. Output:"
-    Write-Log $whatIfOutput
-    Write-Host "What-if preview output:"
-    Write-Host $whatIfOutput
-} catch {
-    Write-Log "[WARNING] ARM what-if preview failed: $($_.Exception.Message)"
-}
-
-# 10) Provision resources
+# 9) Provision resources
 Write-Log "Provisioning environment..."
 Write-Host "Starting provisioning... this may take several minutes."
 azd provision --environment dev-lab 2>&1 | Tee-Object -FilePath $logFile -Append
 Write-Log "azd provision complete."
 
-# 11) Discover resource group (with retry)
+# 10) Discover resource group (with retry)
 Write-Log "Discovering resource group for AZURE_RESOURCE_GROUP..."
 $resourceGroup = $null
 $attempts = 0
@@ -247,25 +231,25 @@ if (-not $resourceGroup) {
 azd env set AZURE_RESOURCE_GROUP $resourceGroup | Tee-Object -FilePath $logFile -Append
 Write-Log "Set AZURE_RESOURCE_GROUP to $resourceGroup"
 
-# 12) Post-Deployment Resource Discovery
+# 11) Post-Deployment Resource Discovery
 Write-Log "Discovering deployed resources..."
 $storageAccount = az resource list --resource-group $resourceGroup --resource-type "Microsoft.Storage/storageAccounts" --query "sort_by([?type=='Microsoft.Storage/storageAccounts'], &length(name))[0].name" -o tsv
 $ingestionFunc  = az resource list --resource-group $resourceGroup --resource-type "Microsoft.Web/sites" --query "[?contains(name, 'inges')].name" -o tsv
 $orchestratorFunc = az resource list --resource-group $resourceGroup --resource-type "Microsoft.Web/sites" --query "[?contains(name, 'orch')].name" -o tsv
 
-# 13) Assign Storage Blob Data Contributor
+# 12) Assign Storage Blob Data Contributor
 Write-Log "Assigning role: Storage Blob Data Contributor..."
 $objectId = az ad sp show --id $clientId --query id -o tsv
 az role assignment create --assignee-object-id $objectId --assignee-principal-type ServicePrincipal --role "Storage Blob Data Contributor" --scope "/subscriptions/$subscriptionId/resourceGroups/$resourceGroup/providers/Microsoft.Storage/storageAccounts/$storageAccount" | Out-Null
 
-# 14) Update Function Apps
+# 13) Update Function Apps
 Write-Log "Updating function app settings..."
 az functionapp config appsettings set --name $ingestionFunc --resource-group $resourceGroup --settings MULTIMODAL=true | Out-Null
 az functionapp restart --name $ingestionFunc --resource-group $resourceGroup | Out-Null
 az functionapp config appsettings set --name $orchestratorFunc --resource-group $resourceGroup --settings AUTOGEN_ORCHESTRATION_STRATEGY=multimodal_rag | Out-Null
 az functionapp restart --name $orchestratorFunc --resource-group $resourceGroup | Out-Null
 
-# 15) Output web app URL
+# 14) Output web app URL
 Write-Log "Getting web app URL..."
 $webAppName = az resource list --resource-group $resourceGroup --resource-type "Microsoft.Web/sites" --query "[?contains(name, 'webgpt')].name" -o tsv
 $webAppUrl  = az webapp show --name $webAppName --resource-group $resourceGroup --query "defaultHostName" -o tsv
