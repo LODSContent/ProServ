@@ -159,46 +159,6 @@ azd env set AZURE_RESOURCE_GROUP $resourceGroup | Tee-Object -FilePath $logFile 
 Write-Log "Set AZURE_RESOURCE_GROUP to $resourceGroup"
 
 
-# 10.1) Attempt fallback OpenAI provisioning if not succeeded
-$openAiAccountName = az resource list --resource-group $resourceGroup --resource-type "Microsoft.CognitiveServices/accounts" `
-    --query "[?contains(name, 'oai0')].name" -o tsv
-
-$provisioningState = ""
-if ($openAiAccountName) {
-    $provisioningState = az cognitiveservices account show `
-        --name $openAiAccountName `
-        --resource-group $resourceGroup `
-        --query "provisioningState" -o tsv
-}
-
-if (-not $openAiAccountName -or $provisioningState -ne "Succeeded") {
-    try {
-        $fallbackScriptPath = "$env:TEMP\provision-openai.ps1"
-        Invoke-WebRequest `
-            -Uri "https://raw.githubusercontent.com/LODSContent/ProServ/refs/heads/main/41-442%20MS%20RAG%20GPT/provision-openai.ps1" `
-            -OutFile $fallbackScriptPath -UseBasicParsing
-
-        Write-Log "Downloaded fallback OpenAI provision script to $fallbackScriptPath"
-
-        & $fallbackScriptPath `
-            -subscriptionId $subscriptionId `
-            -resourceGroup $resourceGroup `
-            -location $location `
-            -labInstanceId $labInstanceId `
-            -clientId $clientId `
-            -clientSecret $clientSecret `
-            -tenantId $tenantId `
-            -logFile $logFile
-
-        Write-Log "Fallback OpenAI provision script executed successfully."
-    } catch {
-        Write-Log "[ERROR] Failed to run fallback OpenAI provisioning script. $_"
-    }
-} else {
-    Write-Log "Azure OpenAI resource provisioned successfully in main script."
-}
-
-
 
 
 # 10.2) Provision OpenAI separately
