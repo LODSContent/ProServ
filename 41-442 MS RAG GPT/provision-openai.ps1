@@ -1,108 +1,121 @@
 param (
-    [string] $subscriptionId,
-    [string] $resourceGroup,
-    [string] $location,
-    [string] $labInstanceId,
-    [string] $clientId,
-    [string] $clientSecret,
-    [string] $tenantId,
-    [string] $logFile = "C:\labfiles\progress.log"
+    [string]$resourceGroup,
+    [string]$location,
+    [string]$labInstanceId,
+    [string]$subscriptionId
 )
 
-function Write-Log {
-    param ($msg)
+$logFile = "C:\labfiles\progress.log"
+function Write-Log($msg) {
     $stamp = (Get-Date).ToString("yyyy-MM-dd HHmmss")
-    Add-Content $logFile "[OpenAI] $stamp $msg"
+    Add-Content $logFile "[OPENAI] $stamp $msg"
 }
 
-Write-Log "Fallback script started."
+Write-Log "Started OpenAI provisioning."
 
-# Login with service principal if needed
-$env:AZURE_CLIENT_ID     = $clientId
-$env:AZURE_CLIENT_SECRET = $clientSecret
-$env:AZURE_TENANT_ID     = $tenantId
-$env:AZD_NON_INTERACTIVE = "true"
+# Name format
+$openAiName = "oai0-$labInstanceId"
 
-try {
-    az login --service-principal --username $clientId --password $clientSecret --tenant $tenantId | Out-Null
-    az account set --subscription $subscriptionId
-    Write-Log "Logged in using service principal."
-} catch {
-    Write-Log "[ERROR] Failed to log in using service principal. $_"
-    exit 1
-}
-
-# Set names
-$uniqueSuffix = (Get-Date -Format "yyyyMMddHHmmss")
-$openAiName = "oai0-$labInstanceId-$uniqueSuffix"
-
-# Provision OpenAI
-Write-Log "Creating Azure OpenAI resource: $openAiName"
-
-$createResult = az cognitiveservices account create `
+# Check if it already exists
+$existing = az cognitiveservices account show `
     --name $openAiName `
     --resource-group $resourceGroup `
-    --location $location `
-    --sku S0 `
-    --kind OpenAI `
-    --yes `
-    --custom-domain "" `
-    --api-properties "{}" `
-    --properties "{}" `
-    --output none 2>&1
+    --query "name" -o tsv 2>$null
 
-if ($LASTEXITCODE -ne 0) {
-    Write-Log "[ERROR] Failed to create Azure OpenAI resource."
-    Write-Log "$createResult"
-    exit 1
+if (-not $existing) {
+    Write-Log "Creating Azure OpenAI resource: $openAiName"
+
+    az cognitiveservices account create `
+        --name $openAiName `
+        --resource-group $resourceGroup `
+        --location $location `
+        --kind OpenAI `
+        --sku S0 `
+        --yes `
+        --custom-domain $openAiName `
+        --properties "{'DisableLocalAuth':'false'}" `
+        --capabilities EnableAzureOpenAI `
+        --query "id" -o tsv | Out-Null
+
+    Write-Log "Creation requested. Waiting for provisioning to complete..."
+} else {
+    Write-Log "Azure OpenAI resource already exists: $openAiName"
 }
 
-Write-Log "OpenAI resource created."
-
-# Wait for provisioning to complete
-$provisioningState = ""
+# Wait for provisioning state
 $attempts = 0
 do {
-    $provisioningState = az cognitiveservices account show `
+    $state = az cognitiveservices account show `
         --name $openAiName `
         --resource-group $resourceGroup `
         --query "provisioningState" -o tsv
-    Write-Log "Provisioning state: $provisioningState (attempt $attempts)"
-    Start-Sleep -Seconds 15
+    Write-Log "Provisioning state: $state"
+    Start-Sleep -Seconds 10
     $attempts++
-} while ($provisioningState -ne "Succeeded" -and $attempts -lt 10)
+} while ($state -ne "Succeeded" -and $attempts -lt 15)
 
-if ($provisioningState -ne "Succeeded") {
-    Write-Log "[ERROR] Azure OpenAI provisioning failed or timed out."
+if ($state -ne "Succeeded") {
+    Write-Log "[ERROR] OpenAI resource did not reach 'Succeeded'. Aborting model deployment."
     exit 1
 }
 
-Write-Log "Provisioning succeeded. Starting model deployments..."
+# Deploy models if needed
+$deployments = az cognitiveservices account deployment list `
+    --name $openAiName `
+    --resource-group $resourceGroup `
+    --query "[].name" -o tsv
 
-# Deploy chat model
-az cognitiveservices account deployment create `
-  --name $openAiName `
-  --resource-group $resourceGroup `
-  --deployment-name "chat" `
-  --model-format OpenAI `
-  --model-name "gpt-35-turbo" `
-  --model-version "0613" `
-  --sku-name "standard" `
-  --scale-type "Standard" | Out-Null
+if ($deployments -notmatch "chat") {
+    Write-Log "Deploying chat model..."
+    az cognitiveservices account deployment create `
+        --name $openAiName `
+        --resource-group $resourceGroup `
+        --deployment-name "chat" `
+        --model-format OpenAI `
+        --model-name "gpt-35-turbo" `
+        --model-version "0613" `
+        --sku-name "standard" `
+        --scale-type "Standard" | Out-Null
+}
 
-Write-Log "Chat model deployed."
+if ($deployments -notmatch "text-embedding") {
+    Write-Log "Deploying text-embedding model..."
+    az cognitiveservices account deployment create `
+        --name $openAiName `
+        --resource-group $resourceGroup `
+        --deployment-name "text-embedding" `
+        --model-format OpenAI `
+        --model-name "text-embedding-ada-002" `
+        --model-version "2" `
+        --sku-name "standard" `
+        --scale-type "Standard" | Out-Null
+}
 
-# Deploy embedding model
-az cognitiveservices account deployment create `
-  --name $openAiName `
-  --resource-group $resourceGroup `
-  --deployment-name "text-embedding" `
-  --model-format OpenAI `
-  --model-name "text-embedding-ada-002" `
-  --model-version "2" `
-  --sku-name "standard" `
-  --scale-type "Standard" | Out-Null
+# Update .env
+$envFile = "$HOME\gpt-rag-deploy\.azure\dev-lab\.env"
+$endpoint = az cognitiveservices account show `
+    --name $openAiName `
+    --resource-group $resourceGroup `
+    --query "properties.endpoint" -o tsv
 
-Write-Log "Embedding model deployed."
-Write-Log "Fallback script completed successfully."
+Write-Log "Updating .env with Azure OpenAI info."
 
+function Set-Or-Update-Key($lines, $key, $value) {
+    if ($lines -match "^$key=") {
+        return $lines -replace "^$key=.*", "$key=$value"
+    } else {
+        return $lines + "`n$key=$value"
+    }
+}
+
+if (Test-Path $envFile) {
+    $lines = Get-Content $envFile
+    $lines = Set-Or-Update-Key $lines "AZURE_OPENAI_NAME" $openAiName
+    $lines = Set-Or-Update-Key $lines "AZURE_OPENAI_ENDPOINT" $endpoint
+    $lines | Set-Content $envFile
+    Write-Log ".env updated with AZURE_OPENAI_NAME and AZURE_OPENAI_ENDPOINT"
+} else {
+    Write-Log "[WARNING] .env file not found. Skipping update."
+}
+
+Write-Log "Azure OpenAI provisioning complete."
