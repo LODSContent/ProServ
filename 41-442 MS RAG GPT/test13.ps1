@@ -148,6 +148,49 @@ az account set --subscription $subscriptionId | Tee-Object -FilePath $logFile -A
 $env:BICEP_REGISTRY_MODULE_INSTALLATION_ENABLED = "true"
 azd provision --environment dev-lab 2>&1 | Tee-Object -FilePath $logFile -Append
 
+# 9.9) Attempt manual OpenAI provisioning fallback if failure is detected
+$openAiDeploymentSucceeded = $true
+$openAiAccountName = az resource list --resource-group $resourceGroup --resource-type "Microsoft.CognitiveServices/accounts" --query "[?contains(name, 'oai0')].name" -o tsv
+
+if (-not $openAiAccountName) {
+    Write-Log "[WARNING] Azure OpenAI resource was not provisioned during 'azd provision'. Attempting manual fallback..."
+    $openAiDeploymentSucceeded = $false
+} else {
+    # Check provisioning state
+    $provisioningState = az cognitiveservices account show --name $openAiAccountName --resource-group $resourceGroup --query "provisioningState" -o tsv
+    if ($provisioningState -ne "Succeeded") {
+        Write-Log "[WARNING] Azure OpenAI resource in non-terminal state: $provisioningState. Attempting manual fallback..."
+        $openAiDeploymentSucceeded = $false
+    }
+}
+
+if (-not $openAiDeploymentSucceeded) {
+    try {
+        $fallbackScriptPath = "$env:TEMP\provision-openai.ps1"
+        Invoke-WebRequest `
+            -Uri "https://raw.githubusercontent.com/LODSContent/ProServ/refs/heads/main/41-442%20MS%20RAG%20GPT/provision-openai.ps1" `
+            -OutFile $fallbackScriptPath -UseBasicParsing
+
+        Write-Log "Downloaded fallback OpenAI provision script to $fallbackScriptPath"
+
+        & $fallbackScriptPath `
+            -subscriptionId $subscriptionId `
+            -resourceGroup $resourceGroup `
+            -location $location `
+            -labInstanceId $labInstanceId `
+            -clientId $clientId `
+            -clientSecret $clientSecret `
+            -tenantId $tenantId `
+            -logFile $logFile
+
+        Write-Log "Fallback OpenAI provision script executed successfully."
+    } catch {
+        Write-Log "[ERROR] Failed to run fallback OpenAI provisioning script. $_"
+    }
+}
+
+
+
 # 10) Discover RG
 $resourceGroup = $null
 $attempts = 0
