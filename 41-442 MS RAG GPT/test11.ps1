@@ -86,26 +86,33 @@ Set-Location $deployPath
 
 # 6.0) Clean up any hook lines (preprovision/predeploy) from azure.yaml
 $yamlPath = Join-Path $deployPath "azure.yaml"
-if (Test-Path $yamlPath) {
-    Write-Log "Cleaning preprovision and predeploy references from azure.yaml..."
+$cleanYaml = @"
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
 
-    $yamlContent = Get-Content $yamlPath -Raw
+name: azure-gpt-rag
+metadata:
+  template: azure-gpt-rag
 
-    # Remove standalone hook block if present
-    $yamlContent = $yamlContent -replace "(?ms)^hooks:.*?(?=^[^\s]|$)", ""
+services:
+  dataIngest:
+    project: ./.azure/gpt-rag-ingestion
+    language: python
+    host: function
 
-    # Remove any lingering hook lines in service blocks
-    $yamlContent = $yamlContent -replace '(?m)^\s*preprovision:.*$', ''
-    $yamlContent = $yamlContent -replace '(?m)^\s*predeploy:.*$', ''
+  orchestrator:
+    project: ./.azure/gpt-rag-orchestrator
+    language: python
+    host: function
 
-    # Remove any host: '' lines that would now be invalid
-    $yamlContent = $yamlContent -replace "(?m)^\s*host:\s*''\s*$", ''
+  frontend:
+    project: ./.azure/gpt-rag-frontend
+    language: python
+    host: appservice
+"@
 
-    Set-Content -Path $yamlPath -Value $yamlContent -NoNewline
-    Write-Log "Sanitized azure.yaml successfully."
-} else {
-    Write-Log "azure.yaml not found at $yamlPath"
-}
+Set-Content -Path $yamlPath -Value $cleanYaml -Encoding UTF8
+Write-Log "Replaced azure.yaml with a clean version to eliminate malformed preprovision blocks."
+
 
 
 
