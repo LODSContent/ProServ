@@ -73,7 +73,7 @@ do {
         --name $openAiName `
         --resource-group $resourceGroup `
         --query "provisioningState" -o tsv
-    Write-Log "Provisioning state of $openAiName: $state (Attempt $($attempt + 1)/$maxAttempts)"
+    Write-Log "Provisioning state of ${openAiName}: $state (Attempt $($attempt + 1))"
     Start-Sleep -Seconds 10
     $attempt++
 } while ($state -ne "Succeeded" -and $attempt -lt $maxAttempts)
