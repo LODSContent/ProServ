@@ -82,7 +82,7 @@ for ($i = 1; $i -le $maxAttempts; $i++) {
         --resource-group $resourceGroup `
         --query "provisioningState" -o tsv
 
-    Write-Log "Provisioning state of $openAiName: $state (Attempt $i)"
+    Write-Log "Provisioning state of ${openAiName}: $state (Attempt $i)"
 
     if ($state -eq "Succeeded") {
         Write-Log "Azure OpenAI resource reached 'Succeeded' state."
@@ -91,7 +91,7 @@ for ($i = 1; $i -le $maxAttempts; $i++) {
 }
 
 if ($state -ne "Succeeded") {
-    Write-Log "[ERROR] Azure OpenAI resource $openAiName failed to reach 'Succeeded' state. Current state: $state"
+    Write-Log "[ERROR] Azure OpenAI resource ${openAiName} failed to reach 'Succeeded' state. Current state: $state"
 }
 
 Write-Log "Fallback OpenAI provision script executed successfully."
