@@ -100,6 +100,40 @@ azd env set AZURE_LOCATION $location | Out-Null
 az account set --subscription $subscriptionId | Out-Null
 Write-Log "Configured azd env variables"
 
+
+# === Wait for OpenAI provisioning state to be terminal ===
+$maxAttempts = 15
+$delaySeconds = 20
+$openAiProvisioningState = ""
+
+Write-Log "Waiting for OpenAI resource to reach a terminal state..."
+
+for ($i = 1; $i -le $maxAttempts; $i++) {
+    try {
+        $openAiProvisioningState = az cognitiveservices account show `
+            --name "oai0-$labInstanceId" `
+            --resource-group "rg-dev-lab" `
+            --query "provisioningState" -o tsv
+
+        Write-Log "OpenAI provisioning state: $openAiProvisioningState (Attempt $i)"
+
+        if ($openAiProvisioningState -in @("Succeeded", "Failed", "Canceled", "Deleted")) {
+            break
+        }
+    } catch {
+        Write-Log "[WARNING] Failed to get provisioning state: $_"
+    }
+
+    Start-Sleep -Seconds $delaySeconds
+}
+
+if ($openAiProvisioningState -notin @("Succeeded", "Failed", "Canceled", "Deleted")) {
+    Write-Log "[WARNING] OpenAI resource provisioning state not terminal after $maxAttempts attempts. Proceeding anyway..."
+}
+Write-Log "OpenAI resource provisioning state is terminal: $openAiProvisioningState"
+
+
+
 Write-Log "Starting azd provision"
 azd provision --environment dev-lab 2>&1 | Tee-Object -FilePath $logFile -Append
 Write-Log "azd provision complete"
