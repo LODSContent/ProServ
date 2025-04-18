@@ -25,8 +25,26 @@ az login --service-principal `
 
 az account set --subscription $subscriptionId | Out-Null
 
-# Step 1: Purge soft-deleted Azure OpenAI
 $openAiName = "oai0-$labInstanceId"
+
+# Check if OpenAI resource already exists and is provisioned
+$existing = az cognitiveservices account list `
+    --resource-group $resourceGroup `
+    --query "[?name=='$openAiName']" -o json | ConvertFrom-Json
+
+if ($existing.Count -gt 0) {
+    $state = az cognitiveservices account show `
+        --name $openAiName `
+        --resource-group $resourceGroup `
+        --query "provisioningState" -o tsv
+
+    if ($state -eq "Succeeded") {
+        Write-Log "Azure OpenAI resource $openAiName already provisioned. Skipping."
+        return
+    }
+}
+
+# Step 1: Purge soft-deleted Azure OpenAI
 $deletedOpenAIs = az cognitiveservices account list-deleted `
     --location $location `
     --query "[?name=='$openAiName']" -o json | ConvertFrom-Json
@@ -82,7 +100,7 @@ for ($i = 1; $i -le $maxAttempts; $i++) {
         --resource-group $resourceGroup `
         --query "provisioningState" -o tsv
 
-    Write-Log "Provisioning state of ${openAiName}: $state (Attempt $i)"
+    Write-Log "Provisioning state of $($openAiName): $state (Attempt $i)"
 
     if ($state -eq "Succeeded") {
         Write-Log "Azure OpenAI resource reached 'Succeeded' state."
@@ -91,7 +109,7 @@ for ($i = 1; $i -le $maxAttempts; $i++) {
 }
 
 if ($state -ne "Succeeded") {
-    Write-Log "[ERROR] Azure OpenAI resource ${openAiName} failed to reach 'Succeeded' state. Current state: $state"
+    Write-Log "[ERROR] Azure OpenAI resource $($openAiName) failed to reach 'Succeeded' state. Current state: $state"
 }
 
 Write-Log "Fallback OpenAI provision script executed successfully."
