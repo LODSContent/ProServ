@@ -17,95 +17,81 @@ function Write-Log {
 
 Write-Log "=== Starting fallback OpenAI provisioning script ==="
 
-# Login
-az login --service-principal --username $clientId --password $clientSecret --tenant $tenantId | Out-Null
+# Login with service principal
+az login --service-principal `
+    --username $clientId `
+    --password $clientSecret `
+    --tenant $tenantId | Out-Null
+
 az account set --subscription $subscriptionId | Out-Null
 
-# Names
+# Step 1: Purge soft-deleted Azure OpenAI
 $openAiName = "oai0-$labInstanceId"
-$aiSvcName  = "ai0-$labInstanceId"
-$bastionKv   = "bastionkv-$($labInstanceId.ToLower())"
+$deletedOpenAIs = az cognitiveservices account list-deleted `
+    --location $location `
+    --query "[?name=='$openAiName']" -o json | ConvertFrom-Json
 
-function Purge-DeletedAccount($name, $type, $cmdListDeleted, $cmdPurge) {
-    $deleted = & $cmdListDeleted | ConvertFrom-Json
-    if ($deleted.Count -gt 0) {
-        Write-Log "Purging soft-deleted $type: $name"
-        foreach ($d in $deleted) {
-            & $cmdPurge
-            Write-Log "Purged $type: $($d.name)"
-        }
-    } else {
-        Write-Log "No soft-deleted $type named $name"
+if ($deletedOpenAIs.Count -gt 0) {
+    foreach ($deleted in $deletedOpenAIs) {
+        Write-Log "Purging soft-deleted Azure OpenAI resource: $($deleted.name)"
+        az cognitiveservices account purge `
+            --location $deleted.location `
+            --name $deleted.name | Out-Null
+        Write-Log "Purged Azure OpenAI: $($deleted.name)"
     }
 }
 
-# 1) Purge soft-deleted OpenAI
-Purge-DeletedAccount `
-    -name $openAiName `
-    -type "Azure OpenAI" `
-    -cmdListDeleted "az cognitiveservices account list-deleted --location $location --query `[?name=='$openAiName']` -o json" `
-    -cmdPurge        "az cognitiveservices account purge --location $location --name $openAiName"
+# Step 2: Purge soft-deleted Key Vault bastionkv-*
+$bastionKvName = "bastionkv-$($labInstanceId.ToLower())"
+$deletedKvs = az keyvault list-deleted `
+    --query "[?name=='$bastionKvName']" -o json | ConvertFrom-Json
 
-# 2) Purge soft-deleted Azure AI Services
-Purge-DeletedAccount `
-    -name $aiSvcName `
-    -type "Azure AI Services" `
-    -cmdListDeleted "az cognitiveservices account list-deleted --location $location --query `[?name=='$aiSvcName']` -o json" `
-    -cmdPurge        "az cognitiveservices account purge --location $location --name $aiSvcName"
+if ($deletedKvs.Count -gt 0) {
+    foreach ($deleted in $deletedKvs) {
+        Write-Log "Purging soft-deleted Key Vault: $($deleted.name)"
+        az keyvault purge --name $deleted.name | Out-Null
+        Write-Log "Purged Key Vault: $($deleted.name)"
+    }
+}
 
-# 3) Purge soft-deleted bastion Key Vault
-Purge-DeletedAccount `
-    -name $bastionKv `
-    -type "Key Vault" `
-    -cmdListDeleted "az keyvault list-deleted --query `[?name=='$bastionKv']` -o json" `
-    -cmdPurge        "az keyvault purge --name $bastionKv"
+# Step 3: Create Azure OpenAI resource
+Write-Log "Creating Azure OpenAI resource: $openAiName"
 
-# Attempt create & poll up to 3 times
-$attemptCycle = 0
-do {
-    $attemptCycle++
-    Write-Log "=== Fallback provisioning cycle #$attemptCycle ==="
+az cognitiveservices account create `
+    --name $openAiName `
+    --resource-group $resourceGroup `
+    --location $location `
+    --kind OpenAI `
+    --sku S0 `
+    --custom-domain $null `
+    --yes `
+    --assign-identity `
+    --api-properties "enableManagedIdentity=true" `
+    --properties '{}' `
+    --tags "env=lab" `
+    --output none
 
-    # 4) Create OpenAI resource
-    Write-Log "Creating Azure OpenAI resource: $openAiName"
-    az cognitiveservices account create `
+Write-Log "Azure OpenAI resource created: $openAiName"
+
+# Step 4: Poll until 'Succeeded'
+$maxAttempts = 15
+for ($i = 1; $i -le $maxAttempts; $i++) {
+    Start-Sleep -Seconds 12
+    $state = az cognitiveservices account show `
         --name $openAiName `
         --resource-group $resourceGroup `
-        --location $location `
-        --kind OpenAI `
-        --sku S0 `
-        --yes `
-        --assign-identity `
-        --api-properties "enableManagedIdentity=true" `
-        --tags "env=lab" `
-        --output none
+        --query "provisioningState" -o tsv
 
-    Write-Log "Azure OpenAI create API returned; polling for provisioningState..."
-
-    # 5) Poll up to 15 times for Succeeded
-    $state = ""
-    for ($i=1; $i -le 15; $i++) {
-        Start-Sleep -Seconds 12
-        $state = az cognitiveservices account show `
-            --name $openAiName `
-            --resource-group $resourceGroup `
-            --query provisioningState -o tsv
-        Write-Log "[$i/15] ProvisioningState of $openAiName => $state"
-        if ($state -eq "Succeeded") { break }
-    }
+    Write-Log ("Provisioning state of $openAiName: $state (Attempt $i)")
 
     if ($state -eq "Succeeded") {
-        Write-Log "✅ $openAiName reached 'Succeeded'"
+        Write-Log "Azure OpenAI resource reached 'Succeeded' state."
         break
-    } else {
-        Write-Log "⚠️ $openAiName did not reach 'Succeeded' (last state: $state)"
     }
-
-} while ($attemptCycle -lt 3)
-
-if ($state -ne "Succeeded") {
-    Write-Log "[ERROR] Failed to provision $openAiName after $attemptCycle cycles."
-    exit 1
 }
 
-Write-Log "Fallback OpenAI provisioning script completed successfully."
+if ($state -ne "Succeeded") {
+    Write-Log "[ERROR] Azure OpenAI resource $openAiName failed to reach 'Succeeded' state. Current state: $state"
+}
+
+Write-Log "Fallback OpenAI provision script executed successfully."
