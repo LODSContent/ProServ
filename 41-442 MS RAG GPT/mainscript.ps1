@@ -121,9 +121,9 @@ if ($openAiAccountName) {
 }
 
 if (-not $openAiAccountName -or $provisioningState -ne "Succeeded") {
-    $fallbackScriptPath = "$env:TEMP\provision-openai.ps1"
+    $fallbackScriptPath = "$env:TEMP\openai.ps1"
     Invoke-WebRequest `
-        -Uri "https://raw.githubusercontent.com/LODSContent/ProServ/refs/heads/main/41-442%20MS%20RAG%20GPT/provision-openai.ps1" `
+        -Uri "https://raw.githubusercontent.com/LODSContent/ProServ/refs/heads/main/41-442%20MS%20RAG%20GPT/openai.ps1" `
         -OutFile $fallbackScriptPath -UseBasicParsing
 
     & $fallbackScriptPath `
