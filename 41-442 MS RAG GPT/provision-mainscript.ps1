@@ -151,7 +151,7 @@ try {
 
     & $fallbackScriptPath `
         -subscriptionId $subscriptionId `
-        -resourceGroup "rg-dev-lab" `
+        -resourceGroup "rg-dev-$labInstanceId" `
         -location $location `
         -labInstanceId $labInstanceId `
         -clientId $clientId `
@@ -172,7 +172,7 @@ Write-Log "azd provision complete."
 $resourceGroup = $null
 $attempts = 0
 while (-not $resourceGroup -and $attempts -lt 5) {
-    $resourceGroup = az group list --query "[?contains(name, 'rg-dev-lab')].name" -o tsv
+    $resourceGroup = az group list --query "[?contains(name, 'rg-dev-$labInstanceId')].name" -o tsv
     Start-Sleep -Seconds 5
     $attempts++
 }
