@@ -74,9 +74,9 @@ az cognitiveservices account create `
 Write-Log "Azure OpenAI resource created: $openAiName"
 
 # Step 4: Poll until 'Succeeded'
-$maxAttempts = 15
+$maxAttempts = 20
 for ($i = 1; $i -le $maxAttempts; $i++) {
-    Start-Sleep -Seconds 12
+    Start-Sleep -Seconds 30
     $state = az cognitiveservices account show `
         --name $openAiName `
         --resource-group $resourceGroup `
