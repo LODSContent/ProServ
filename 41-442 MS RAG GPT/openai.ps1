@@ -89,10 +89,10 @@ try {
 }
 
 # === Step 4: Confirm Provisioning ===
-$maxAttempts = 15
+$maxAttempts = 5
 $state = ""
 for ($i = 1; $i -le $maxAttempts; $i++) {
-    Start-Sleep -Seconds 12
+    Start-Sleep -Seconds 30
     try {
         $state = az cognitiveservices account show `
             --name $openAiName `
