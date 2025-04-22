@@ -64,7 +64,7 @@ Write-Log "Cleaned azure.yaml"
 
 $env:AZD_SKIP_UPDATE_CHECK = "true"
 $env:AZD_DEFAULT_YES = "true"
-azd init --environment dev-lab --no-prompt | Out-Null
+azd init --environment dev-$labInstanceId --no-prompt | Out-Null
 Write-Log "Initialized azd environment"
 
 $infraScriptPath = Join-Path $deployPath "infra\scripts"
@@ -72,7 +72,7 @@ Remove-Item -Force -ErrorAction SilentlyContinue "$infraScriptPath\preprovision.
 Remove-Item -Force -ErrorAction SilentlyContinue "$infraScriptPath\preDeploy.ps1"
 Write-Log "Removed pre-provision/deploy scripts"
 
-$envFile = Join-Path $deployPath ".azure\dev-lab\.env"
+$envFile = Join-Path $deployPath ".azure\dev-$labInstanceId\.env"
 if (Test-Path $envFile) {
     $envContent = Get-Content $envFile
     if ($envContent -notmatch "^AZURE_NETWORK_ISOLATION=") {
@@ -102,8 +102,8 @@ Write-Log "Configured azd env variables"
 
 
 # === Wait for OpenAI provisioning state to be terminal ===
-$maxAttempts = 15
-$delaySeconds = 20
+$maxAttempts = 20
+$delaySeconds = 35
 $openAiProvisioningState = ""
 
 Write-Log "Waiting for OpenAI resource to reach a terminal state..."
@@ -112,7 +112,7 @@ for ($i = 1; $i -le $maxAttempts; $i++) {
     try {
         $openAiProvisioningState = az cognitiveservices account show `
             --name "oai0-$labInstanceId" `
-            --resource-group "rg-dev-lab" `
+            --resource-group "rg-dev-$labInstanceId" `
             --query "provisioningState" -o tsv
 
         Write-Log "OpenAI provisioning state: $openAiProvisioningState (Attempt $i)"
@@ -135,9 +135,9 @@ Write-Log "OpenAI resource provisioning state is terminal: $openAiProvisioningSt
 
 
 Write-Log "Starting azd provision"
-azd provision --environment dev-lab 2>&1 | Tee-Object -FilePath $logFile -Append
+azd provision --environment dev-$labInstanceId 2>&1 | Tee-Object -FilePath $logFile -Append
 Write-Log "azd provision complete"
-$resourceGroup = az group list --query "[?contains(name, 'rg-dev-lab')].name" -o tsv
+$resourceGroup = az group list --query "[?contains(name, 'rg-dev-$labInstanceId')].name" -o tsv
 azd env set AZURE_RESOURCE_GROUP $resourceGroup | Out-Null
 Write-Log "Set resource group: $resourceGroup"
 
