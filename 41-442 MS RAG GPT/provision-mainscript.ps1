@@ -80,7 +80,7 @@ Set-Content -Path $yamlPath -Value $cleanYaml -Encoding UTF8
 # 6.1) Init env
 $env:AZD_SKIP_UPDATE_CHECK = "true"
 $env:AZD_DEFAULT_YES = "true"
-azd init --environment dev-lab --no-prompt | Tee-Object -FilePath $logFile -Append
+azd init --environment dev-$labInstanceId --no-prompt | Tee-Object -FilePath $logFile -Append
 
 # 6.2) Remove pre-* scripts
 $infraScriptPath = Join-Path $deployPath "infra\scripts"
