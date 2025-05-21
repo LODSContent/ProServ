@@ -1,0 +1,34 @@
+# Add a role
+New-AzRoleAssignment -SignInName @lab.CloudPortalCredential(User1).Username -RoleDefinitionName "LODContributor" -Scope /subscriptions/@lab.CloudSubscription.Id
+
+[Target = Cloud subscription |Action = Execute Script in Cloud Platform | Event = Post-Build]
+
+
+=======================================================================================================================================================================
+#Attempt to sign in
+# Set Variables
+Install-Module -Name Az -AllowClobber -Force
+$AdminUserName = '@lab.CloudPortalCredential(User1).Username'
+$AdminPassword = '@lab.CloudPortalCredential(User1).Password'
+$resourceGroup = '@lab.CloudResourceGroup(rg-ms-learn-vision).Name'
+
+# Get the Object ID of a user or service principal
+$objectId = (Get-AzADUser -UserPrincipalName $AdminUserName).Id
+
+
+# Connect to cred tokens
+$creds = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList ($AdminUserName, (ConvertTo-SecureString -AsPlainText -Force -String $AdminPassword))
+
+
+# Connect to Azure using your credentials
+Connect-AzAccount -Credential $creds | Out-Null
+
+# Set the subscription context where you want to assign the role
+Set-AzContext -SubscriptionId "@lab.CloudSubscription.Id"
+
+# Define the required variables
+$roleName = "Cognitive Services Custom Vision Contributor"
+$roleDefinitionId = (Get-AzRoleDefinition | Where-Object {$_.Name -eq $roleName}).Id
+
+# Assign the role to the RG level scope
+New-AzRoleAssignment -ObjectId $objectId -RoleDefinitionId $roleDefinitionId -Scope "/subscriptions/@lab.CloudSubscription.Id/resourceGroups/@lab.CloudResourceGroup(rg-ms-learn-vision).Name"
