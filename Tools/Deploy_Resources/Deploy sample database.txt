@@ -1,0 +1,77 @@
+Name: Deploy sample database
+Action: Execute Script in Cloud Platform
+Event: Pre-Build
+Delay: 200 seconds
+Timeout: 10 mins
+Retries: 4
+Error Action: Log
+
+# Parameters
+$resourceGroupName = '@lab.CloudResourceGroup(RG1).Name'
+$templateUri = "https://raw.githubusercontent.com/LODSContent/Tom-Demo/master/template.json"
+$sqlServerName = "sql@lab.LabInstance.Id"
+$maxAttempts = 10
+
+# Suppress informational output
+$InformationPreference = 'SilentlyContinue'
+$VerbosePreference = 'SilentlyContinue'
+
+# Register SQL so we can create server
+Register-AzResourceProvider -ProviderNamespace Microsoft.Sql
+
+# Function to check if the SQL server exists
+function Test-SqlServerExists {
+    param (
+        [string]$resourceGroupName,
+        [string]$sqlServerName
+    )
+    try {
+        $server = Get-AzSqlServer -ResourceGroupName $resourceGroupName -ServerName $sqlServerName -ErrorAction Stop
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+# Check if the SQL server exists, create if it does not
+if (-not (Test-SqlServerExists -resourceGroupName $resourceGroupName -sqlServerName $sqlServerName)) {
+    Write-Host "SQL server '$sqlServerName' not found. Creating new SQL server."
+    $location = (Get-AzResourceGroup -Name $resourceGroupName).Location
+    $adminUsername = "azureadmin1"
+    $adminPassword = ConvertTo-SecureString -String "@lab.CloudPortalCredential(CSU_User1).Password" -AsPlainText -Force
+    $adminCredentials = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $adminUsername, $adminPassword
+    New-AzSqlServer -ResourceGroupName $resourceGroupName -ServerName $sqlServerName -Location $location -ServerVersion "12.0" -SqlAdministratorCredentials $adminCredentials
+
+    # Allow Azure services and resources to access this server
+    New-AzSqlServerFirewallRule -ResourceGroupName $resourceGroupName -ServerName $sqlServerName -FirewallRuleName "AllowAllWindowsAzureIps" -StartIpAddress "0.0.0.0" -EndIpAddress "0.0.0.0"
+} else {
+    Write-Host "SQL server '$sqlServerName' exists in resource group '$resourceGroupName'."
+
+    # Allow Azure services and resources to access this server
+    New-AzSqlServerFirewallRule -ResourceGroupName $resourceGroupName -ServerName $sqlServerName -FirewallRuleName "AllowAllWindowsAzureIps" -StartIpAddress "0.0.0.0" -EndIpAddress "0.0.0.0"
+}
+
+$location = (Get-AzResourceGroup -Name $resourceGroupName).Location
+
+$params = @{
+    collation = "SQL_Latin1_General_CP1_CI_AS"
+    databaseName = "DB01"
+    tier = "GeneralPurpose"
+    skuName = "GP_S_Gen5_1"
+    maxSizeBytes = 34359738368
+    sampleName = "AdventureWorksLT"
+    serverLocation = $location
+    serverName = $sqlServerName
+    minCapacity = "0.5"
+    autoPauseDelay = 60
+    sqlLedgerTemplateLink = "https://sqlazureextension.hosting.portal.azure.net/sqlazureextension/Content/2.1.02687198/DeploymentTemplates/SqlLedger.json"
+    privateLinkPrivateDnsZoneFQDN = "privatelink.database.windows.net"
+    privateEndpointTemplateLink = "https://sqlazureextension.hosting.portal.azure.net/sqlazureextension/Content/2.1.02687198/DeploymentTemplates/PrivateEndpoint.json"
+    privateDnsForPrivateEndpointTemplateLink = "https://sqlazureextension.hosting.portal.azure.net/sqlazureextension/Content/2.1.02687198/DeploymentTemplates/PrivateDnsForPrivateEndpoint.json"
+    privateDnsForPrivateEndpointNicTemplateLink = "https://sqlazureextension.hosting.portal.azure.net/sqlazureextension/Content/2.1.02687198/DeploymentTemplates/PrivateDnsForPrivateEndpointNic.json"
+    privateDnsForPrivateEndpointIpConfigTemplateLink = "https://sqlazureextension.hosting.portal.azure.net/sqlazureextension/Content/2.1.02687198/DeploymentTemplates/PrivateDnsForPrivateEndpointIpConfig.json"
+    requestedBackupStorageRedundancy = "Local"
+    freeLimitExhaustionBehavior = "AutoPause"
+}
+
+New-AzResourceGroupDeployment -ResourceGroupName $resourceGroupName -TemplateUri $templateUri -TemplateParameterObject $params
