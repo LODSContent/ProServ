@@ -1,0 +1,32 @@
+Tear down Open AI deployments and Accounts (CSS)
+Execute Script in Cloud Platform
+Language	PowerShell
+Blocking	Yes
+Timeout	10 Minutes
+Retries	1
+Error Action	Log
+
+# Query for all OpenAI deployment accounts in the subscription or resource group, depending on the context scope.
+
+$AIObjs = Get-AzResource -ResourceType "Microsoft.CognitiveServices/accounts" 
+
+# Get the model deployments for each OpenAI account and store them in an array
+
+$AIObjArray = @()
+foreach ($AIobj in $AIObjs) {
+    $AIObjArray += Get-AzCognitiveServicesAccountDeployment -ResourceGroupName $AIobj.ResourceGroupName -AccountName $AIobj.Name
+}
+
+#Loop through each model deployment and delete it
+
+
+foreach ($Deployment in $AIObjArray) {
+    Remove-AzCognitiveServicesAccountDeployment -ResourceId $deployment.Id -Force    
+}
+
+
+# Loop through each Open AI deployment account and delete it
+foreach ($account in $AIObjs) {
+    Remove-AzResource -ResourceId $account.ResourceId -Force
+    Write-Output "Deleted OpenAI deployment: $($account.Name)"
+}
