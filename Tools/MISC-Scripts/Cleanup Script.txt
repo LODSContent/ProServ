@@ -1,0 +1,16 @@
+Clear-RecycleBin -force
+Ipconfig /release
+Get-ChildItem "$env:APPDATA\Microsoft\Windows\Recent" | Remove-Item -Confirm:$False -Recurse
+$url = get-itemproperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\TypedPaths"
+$items = $url.psbase.properties | where {$_.Name -like "url*"} | Remove-Itemproperty -Path $url.PSPath
+$url = get-itemproperty "HKCU:\Software\Microsoft\Internet Explorer\TypedURLs"
+$items = $url.psbase.properties | where {$_.Name -like "url*"} | Remove-Itemproperty -Path $url2.PSPath
+$path = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU"
+$arr = (Get-Item -Path $path).Property
+foreach($item in $arr) {if($item -ne "MRUList")
+{Remove-ItemProperty -Path $path -Name $item -ErrorAction SilentlyContinue}}
+$path2 = "HKLM:\SOFTWARE\Microsoft\Virtual Machine\External"
+$environ = (Get-Item -Path $path2).Property
+foreach($item in $environ) {Remove-ItemProperty -Path $path2 -Name $item -ErrorAction SilentlyContinue}
+wevtutil el | Foreach-Object {Write-Host "Clearing $_"; wevtutil cl "$_"}
+Stop-Computer
